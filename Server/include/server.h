@@ -1,0 +1,85 @@
+#pragma once
+
+#include <asio.hpp>
+
+namespace server
+{
+
+	struct TriggerCallback
+	{
+		std::function<void()> func = nullptr;
+		std::vector<uint8_t> comparison;
+		size_t size = 0; 
+
+
+		TriggerCallback(std::function<void()> f, const uint8_t* data, size_t s)
+			: func(std::move(f)), comparison(data, data + s), size(s) {
+		}
+	};
+
+
+	class Server
+	{
+	public:
+
+		// Constructor: Initializes the server with a specified port
+		Server(unsigned short port, std::function<void()> onConnet = nullptr, std::function<void()> onDisconnect = nullptr);
+
+		void run();
+
+		void set_on_disconnect(std::function<void()> callback);
+
+		void set_on_connect(std::function<void()> callback);
+
+		void set_on_message_received(std::function<void()> callback);
+
+		asio::ip::tcp::endpoint get_endpoint() const;
+		
+		template<typename T>
+		void set_on_message_with_trigger(std::function<void()> callback, const T& comparison);
+
+		template<typename T>
+		void set_on_message_starting_with(std::function<void()> callback, const T& comparison);
+
+		void stop();
+
+		~Server();
+
+	private:
+
+		std::thread _ioThread;
+
+		asio::io_context _ioContext; 
+	
+		asio::executor_work_guard<asio::io_context::executor_type> _workGuard;
+
+		asio::ip::tcp::endpoint _endpoint;
+		asio::ip::tcp::acceptor _acceptor; 
+
+		std::unordered_map<size_t, std::unique_ptr<asio::ip::tcp::socket>> _clients;
+		std::vector<std::vector<uint8_t>> _clientBuffers;
+
+
+		size_t _nextClientId = 0; 
+
+		std::function<void()> _onDisconnet = nullptr;
+		std::function<void()> _onConnect = nullptr;
+		std::function<void()> _onMessageReceived = nullptr;
+		std::vector<TriggerCallback> _onMessageWithTrigger; 
+		std::vector<TriggerCallback> _onMessageStartingWith; 
+
+		void start_accept(); 
+		
+		void handle_accept(asio::ip::tcp::socket& socket, const asio::error_code& error);
+
+		//void handle
+		void start_session(asio::ip::tcp::socket& socket, size_t id);
+
+		void handle_incoming_data(const asio::error_code& error, size_t byteSizeTransferred, size_t id);
+	};
+
+
+
+}
+
+#include "server.inl" 

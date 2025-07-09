@@ -1,0 +1,97 @@
+# Ignore build directories
+[Bb]uild/
+[Bb]in/
+[Oo]bj/
+[Bb]in-int/
+*.exe
+*.dll
+*.lib
+
+!vendor/**/*.lib
+
+*.so
+*.pdb
+*.ilk
+*.idb
+*.sdf
+*.ipch
+*.iobj
+*.ipdb
+*.log
+*.tlog
+*.lastbuildstate
+*.sln
+*.vcxproj
+*.filters
+*.user
+
+
+# Ignore generated files
+*.user
+*.rsuser
+*.suo
+*.ncb
+*.opendb
+*.VC.db
+*.VC.opendb
+*.vscode/
+
+# Ignore Visual Studio Code settings
+.vscode/
+.vscode/settings.json
+
+# Ignore Premake
+*.make
+Makefile
+*.workspace
+*.project
+
+# Ignore backup and temporary files
+*.bak
+*.swp
+*.tmp
+
+# Ignore debug folders
+Debug/
+Release/
+x64/
+x86/
+
+# Ignore other common directories
+out/
+output/
+dist/
+build/
+vendor/
+
+# Ignore dependency files
+*.obj
+*.o
+*.d
+*.a
+
+# Ignore NuGet packages
+packages/
+*.nupkg
+
+# Ignore auto-generated files
+*.tlog
+*.log
+*.obj
+*.idb
+*.pch
+
+# Ignore Personal Visual Studio config
+.vs/
+*.suo
+*.vcxproj.user
+*.filters
+
+# Ignore folders often found in projects
+deps/
+libs/
+extern/
+
+# Ignore OS specific files
+.DS_Store
+Thumbs.db
