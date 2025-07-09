@@ -3,9 +3,143 @@
 
 namespace client
 {
-	Client::Client(const std::string& host, unsigned short port)
-		: _ioContext(), _socket(_ioContext), _endpoint(asio::ip::make_address(host), port)
-		
+	Client::Client(const std::string& host, unsigned short port, std::function<void()> onConnect, std::function<void()> onDisonnect)
+		: _ioContext(), _endpoint(asio::ip::make_address(host), port), _socket(_ioContext)
+	{	
+		std::cout << "Client initialized. Connecting to " << host << ":" << port << std::endl;
+
+		if (onConnect != nullptr)
 		{
+			_onConnect = std::move(onConnect);
+		}
+		if (onDisonnect != nullptr)
+		{
+			_onDisconnect = std::move(onDisonnect);
+		}
+		connect();
 	}
+
+	void Client::connect()
+	{
+		run();
+
+		_receiveBuffer.resize(1024);
+
+		asio::error_code socketEc;
+		_socket.connect(_endpoint, socketEc);
+		if (socketEc)
+		{
+			std::cerr << "Connect failed: " << socketEc.message() << std::endl;
+			stop();
+			return;
+		}
+
+		asio::error_code dataEc;
+		size_t data = 0;
+		_socket.receive(asio::buffer(&data, sizeof(data)), 0, dataEc);
+		if (dataEc)
+		{
+			std::cerr << "Initial connection failed: " << dataEc.message() << std::endl;
+			stop(); 
+			return;
+		}
+		_clientId = data;
+
+		if (_onConnect != nullptr)
+		{
+			_onConnect();
+		}
+
+		_socket.async_receive(asio::buffer(_receiveBuffer),
+			[this](const asio::error_code& error, size_t bytesTransferred)
+			{
+				handle_receive(error, bytesTransferred);
+			});
+
+	}
+
+	void Client::set_on_connect(std::function<void()> callback)
+	{
+		_onConnect = std::move(callback);
+	}
+
+	void Client::set_on_disconnect(std::function<void()> callback)
+	{
+		_onDisconnect = std::move(callback);
+	}
+
+	void Client::set_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback)
+	{
+		_onMessageReceived = std::move(callback);
+	}
+
+	void Client::stop()
+	{
+		if (_ioThread.joinable())
+		{
+			_ioContext.stop();
+			_ioThread.join();
+		}
+		if (_socket.is_open())
+		{
+			_socket.close();
+		}
+
+		if (_onDisconnect)
+		{
+			_onDisconnect();
+		}
+
+		_receiveBuffer.clear();
+
+		std::cout << "Client stopped." << std::endl;
+	}
+
+	Client::~Client()
+	{
+		stop();
+	}
+
+	void Client::run()
+	{
+		_ioThread = std::thread([this]()
+			{
+				try
+				{
+					_ioContext.run();
+				}
+				catch (const std::exception& e)
+				{
+					std::cerr << "Client IO context error: " << e.what() << std::endl;
+				}
+			});
+	}
+
+	void Client::handle_receive(const asio::error_code& error, size_t bytesTransferred)
+	{
+		bool errorOccured = false;
+		if (error)
+		{
+			std::cerr << "Receive failed: " << error.message() << std::endl;
+			errorOccured = true;
+		}
+		if (error == asio::error::eof || bytesTransferred == 0)
+		{
+			std::cout << "Server disconnected." << std::endl;
+			errorOccured = true;
+		}
+		if (errorOccured)
+		{
+			std::cout << "Stopping client due to error." << std::endl;
+			stop();
+			return;
+		}
+		if (_onMessageReceived)
+		{
+			std::vector<uint8_t> data(_receiveBuffer.begin(), _receiveBuffer.begin() + bytesTransferred);
+			_onMessageReceived(data);
+		}
+	}
+
+
 }

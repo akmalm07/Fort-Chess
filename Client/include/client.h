@@ -7,29 +7,42 @@ namespace client
 	class Client
 	{
 	public:
-		// Constructor: Initializes the client with a specified host and port
-		Client(const std::string& host, unsigned short port);
+
+		Client(const std::string& host, unsigned short port, std::function<void()> onConnect = nullptr, std::function<void()> onDisonnect = nullptr);
 
 		void connect();
-		// Sends data to the server
+
+		void set_on_connect(std::function<void()> callback);
+		void set_on_disconnect(std::function<void()> callback);
+
 		template<typename T>
 		void send(const T& data);
-		// Receives data from the server
-		void receive();
-		// Sets a callback for when a message is received
+
 		void set_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback);
-		// Stops the client connection
+
 		void stop();
 
 		~Client();
 	private:
-		asio::io_context _ioContext;
-		asio::ip::tcp::socket _socket;
-		asio::ip::tcp::endpoint _endpoint;
+
 		std::thread _ioThread;
+		asio::io_context _ioContext;
+		
+		asio::ip::tcp::endpoint _endpoint;
+		asio::ip::tcp::socket _socket;
+
+		std::vector<uint8_t> _receiveBuffer; 
+
+
+		std::function<void()> _onDisconnect = nullptr;
+		std::function<void()> _onConnect = nullptr;
+
+		size_t _clientId = 0;
 		std::function<void(const std::vector<uint8_t>&)> _onMessageReceived;
-		void run(); // Runs the IO context in a separate thread
-		void handle_receive(const asio::error_code& error, size_t bytes_transferred);
+		void run(); 
+		void handle_receive(const asio::error_code& error, size_t bytesTransferred);
 	};
 
 }
+
+#include "client.inl"

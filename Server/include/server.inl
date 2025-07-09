@@ -5,16 +5,32 @@
 namespace server
 {
 	template<typename T>
-	inline void Server::set_on_message_with_trigger(std::function<void()> callback, const T& comparison)
+	inline void Server::send_data(size_t clientId, const T& data)
 	{
-		const uint8_t* data = reinterpret_cast<const uint8_t*>(&comparison);
-
-		_onMessageWithTrigger.emplace_back(callback, data, sizeof(T));
+		auto it = _clients.find(clientId);
+		if (it == _clients.end())
+		{
+			std::cerr << "Client ID " << clientId << " not found." << std::endl;
+		}
+		try
+		{
+			const uint8_t* buffer = reinterpret_cast<const uint8_t*>(&data);
+			size_t size = sizeof(T);
+			asio::write(*it->second, asio::buffer(buffer, size));
+		}
+		catch (const asio::system_error& e)
+		{
+			std::cerr << "Send failed: " << e.what() << std::endl;
+			it->second->close(); 
+			_clients.erase(it); 
+		}
 	}
 	template<typename T>
-	inline void Server::set_on_message_starting_with(std::function<void()> callback, const T& comparison)
+	inline void Server::send_data_to_all(const T& data)
 	{
-		const uint8_t* data = reinterpret_cast<const uint8_t*>(&comparison);
-		_onMessageStartingWith.emplace_back(callback, data, sizeof(T));
+		for (const auto& [id, socket] : _clients)
+		{
+			send_data(id, data);
+		}
 	}
 }

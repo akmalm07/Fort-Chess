@@ -5,25 +5,12 @@
 namespace server
 {
 
-	struct TriggerCallback
-	{
-		std::function<void()> func = nullptr;
-		std::vector<uint8_t> comparison;
-		size_t size = 0; 
-
-
-		TriggerCallback(std::function<void()> f, const uint8_t* data, size_t s)
-			: func(std::move(f)), comparison(data, data + s), size(s) {
-		}
-	};
-
-
 	class Server
 	{
 	public:
 
 		// Constructor: Initializes the server with a specified port
-		Server(unsigned short port, std::function<void()> onConnet = nullptr, std::function<void()> onDisconnect = nullptr);
+		Server(unsigned short port, std::function<void()> onConnect = nullptr, std::function<void()> onDisconnect = nullptr);
 
 		void run();
 
@@ -31,15 +18,15 @@ namespace server
 
 		void set_on_connect(std::function<void()> callback);
 
-		void set_on_message_received(std::function<void()> callback);
+		void add_on_message_received(std::function<void(const std::vector<size_t>&)> callback);
+
+		template<typename T>
+		void send_data(size_t clientId, const T& data);
+
+		template<typename T>
+		void send_data_to_all(const T& data);
 
 		asio::ip::tcp::endpoint get_endpoint() const;
-		
-		template<typename T>
-		void set_on_message_with_trigger(std::function<void()> callback, const T& comparison);
-
-		template<typename T>
-		void set_on_message_starting_with(std::function<void()> callback, const T& comparison);
 
 		void stop();
 
@@ -64,9 +51,7 @@ namespace server
 
 		std::function<void()> _onDisconnet = nullptr;
 		std::function<void()> _onConnect = nullptr;
-		std::function<void()> _onMessageReceived = nullptr;
-		std::vector<TriggerCallback> _onMessageWithTrigger; 
-		std::vector<TriggerCallback> _onMessageStartingWith; 
+		std::vector<std::function<void(const std::vector<size_t>&)>> _onMessageReceived;
 
 		void start_accept(); 
 		
@@ -77,8 +62,6 @@ namespace server
 
 		void handle_incoming_data(const asio::error_code& error, size_t byteSizeTransferred, size_t id);
 	};
-
-
 
 }
 
