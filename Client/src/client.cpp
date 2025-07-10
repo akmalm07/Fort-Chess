@@ -16,13 +16,26 @@ namespace client
 		{
 			_onDisconnect = std::move(onDisonnect);
 		}
+
 		connect();
+
+		_ioThread = std::thread([this]()
+			{
+			try {
+				_ioContext.run();
+			}
+			catch (const std::exception& e) 
+			{
+				std::cerr << "IO context error: " << e.what() << std::endl;
+			}
+			});
+
+		std::cout << "Client started on " << _endpoint.address().to_string() << ":" << _endpoint.port() << std::endl;
+
 	}
 
 	void Client::connect()
 	{
-		run();
-
 		_receiveBuffer.resize(1024);
 
 		asio::error_code socketEc;
@@ -70,15 +83,15 @@ namespace client
 
 	void Client::set_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback)
 	{
-		_onMessageReceived = std::move(callback);
+		_onMessageReceived.push_back(std::move(callback));
 	}
 
 	void Client::stop()
 	{
 		if (_ioThread.joinable())
 		{
-			_ioContext.stop();
 			_ioThread.join();
+			_ioContext.stop();
 		}
 		if (_socket.is_open())
 		{
@@ -134,10 +147,13 @@ namespace client
 			stop();
 			return;
 		}
-		if (_onMessageReceived)
+		
+		std::vector<uint8_t> data(_receiveBuffer.begin(), _receiveBuffer.begin() + bytesTransferred); // this might copy the buffer from
+																							//the beginning to the buffer th the bytes transferred,
+																							//and if it was inserted twice, it might read from wrong offset
+		for (const auto& msg : _onMessageReceived)
 		{
-			std::vector<uint8_t> data(_receiveBuffer.begin(), _receiveBuffer.begin() + bytesTransferred);
-			_onMessageReceived(data);
+			msg(data);
 		}
 	}
 

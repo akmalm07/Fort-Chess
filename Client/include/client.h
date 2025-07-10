@@ -38,7 +38,8 @@ namespace client
 		std::function<void()> _onConnect = nullptr;
 
 		size_t _clientId = 0;
-		std::function<void(const std::vector<uint8_t>&)> _onMessageReceived;
+		
+		std::vector<std::function<void(const std::vector<uint8_t>&)>> _onMessageReceived;
 		void run(); 
 		void handle_receive(const asio::error_code& error, size_t bytesTransferred);
 	};

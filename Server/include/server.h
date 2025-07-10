@@ -12,13 +12,11 @@ namespace server
 		// Constructor: Initializes the server with a specified port
 		Server(unsigned short port, std::function<void()> onConnect = nullptr, std::function<void()> onDisconnect = nullptr);
 
-		void run();
-
 		void set_on_disconnect(std::function<void()> callback);
 
 		void set_on_connect(std::function<void()> callback);
 
-		void add_on_message_received(std::function<void(const std::vector<size_t>&)> callback);
+		void add_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback);
 
 		template<typename T>
 		void send_data(size_t clientId, const T& data);
@@ -43,19 +41,19 @@ namespace server
 		asio::ip::tcp::endpoint _endpoint;
 		asio::ip::tcp::acceptor _acceptor; 
 
-		std::unordered_map<size_t, std::unique_ptr<asio::ip::tcp::socket>> _clients;
-		std::vector<std::vector<uint8_t>> _clientBuffers;
+		std::unordered_map<size_t, std::shared_ptr<asio::ip::tcp::socket>> _clients;
+		std::unordered_map<size_t, std::vector<uint8_t>> _clientBuffers;
 
 
 		size_t _nextClientId = 0; 
 
-		std::function<void()> _onDisconnet = nullptr;
+		std::function<void()> _onDisconnect = nullptr;
 		std::function<void()> _onConnect = nullptr;
-		std::vector<std::function<void(const std::vector<size_t>&)>> _onMessageReceived;
+		std::vector<std::function<void(const std::vector<uint8_t>&)>> _onMessageReceived;
 
 		void start_accept(); 
 		
-		void handle_accept(asio::ip::tcp::socket& socket, const asio::error_code& error);
+		void handle_accept(std::shared_ptr<asio::ip::tcp::socket> socket, const asio::error_code& error);
 
 		//void handle
 		void start_session(asio::ip::tcp::socket& socket, size_t id);

@@ -1,5 +1,5 @@
 project "Client"
-    kind "ConsoleApp" --"StaticLib" is nessesary for building on your system
+    kind "ConsoleApp" 
     language "C++"
     cppdialect "C++latest"
     staticruntime "on"
