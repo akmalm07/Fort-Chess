@@ -25,6 +25,24 @@ namespace server
 			_clients.erase(it); 
 		}
 	}
+	
+	template<typename T>
+	inline void Server::send_data_to_some(const std::vector<size_t>& clientId, const T& data)
+	{
+		for (size_t id : clientId)
+		{
+			auto it = _clients.find(id);
+			if (it != _clients.end())
+			{
+				send_data(id, data);
+			}
+			else
+			{
+				std::cerr << "Client ID " << id << " not found." << std::endl;
+			}
+		}
+	}
+
 	template<typename T>
 	inline void Server::send_data_to_all(const T& data)
 	{

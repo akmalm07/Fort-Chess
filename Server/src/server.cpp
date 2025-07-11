@@ -6,7 +6,7 @@ namespace server
 	Server::Server(unsigned short port, std::function<void()> onConnect, std::function<void()> onDisconnect)
 		: _ioContext(),
 		_workGuard(asio::make_work_guard(_ioContext)),
-		_endpoint(asio::ip::make_address("0.0.0.0"), port), //DEBUG
+		_endpoint(asio::ip::tcp::v4(), port), 
 		_acceptor(_ioContext, _endpoint)
 	{
 		if (onConnect) _onConnect = std::move(onConnect);
@@ -21,11 +21,17 @@ namespace server
 			}
 			catch (const std::exception& e)
 			{
-				std::cerr << "IO context error: " << e.what() << std::endl;
+				if constexpr (SERVER_DEBUG)
+				{
+					std::cerr << "IO context error: " << e.what() << std::endl;
+				}
 			}
 			});
 
-		std::cout << "Server started on " << _endpoint.address().to_string() << ":" << _endpoint.port() << std::endl;
+		if constexpr (SERVER_DEBUG)
+		{
+			std::cout << "Server started on " << _endpoint.address().to_string() << ":" << _endpoint.port() << std::endl; \
+		}
 	}
 
 	void Server::set_on_disconnect(std::function<void()> callback)
@@ -43,6 +49,36 @@ namespace server
 		_onMessageReceived.push_back(std::move(callback));
 	}
 
+#ifdef SERVER_SAVE_PREV_DATA
+
+	std::vector<uint8_t> Server::get_accumulated_data(size_t id) 
+	{
+		auto it = _clients.find(id);
+		if (it == _clients.end())
+		{
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cerr << "Client ID " << id << " not found." << std::endl;
+			}
+			return {};
+		}
+		const ClientSession& client = it->second;
+		if constexpr (SERVER_DEBUG)
+		{
+			std::cout << "Accumulated data for client " << id << ": ";
+
+			const auto& data = _accumulatedData.at(id); 
+			for (const auto& byte : data)
+			{
+				std::cout << static_cast<uint8_t>(byte) << " ";
+			}
+			std::cout << std::endl;
+		}
+
+		return _accumulatedData.at(id);
+	}
+#endif
+
 	asio::ip::tcp::endpoint Server::get_endpoint() const
 	{
 		return _endpoint;
@@ -55,17 +91,19 @@ namespace server
 
 		for (auto& [id, socket] : _clients)
 		{
-			if (socket->is_open())
-				socket->close();
+			if (socket.socket->is_open())
+				socket.socket->close();
 		}
 
 		if (_ioThread.joinable())
 			_ioThread.join();
 
 		_clients.clear();
-		_clientBuffers.clear();
 
-		std::cout << "Server stopped." << std::endl;
+		if constexpr (SERVER_DEBUG)
+		{
+			std::cout << "Server stopped." << std::endl;
+		}
 	}
 
 	Server::~Server()
@@ -88,7 +126,7 @@ namespace server
 		if (error)
 		{
 			if (error == asio::error::operation_aborted)
-				return; // Expected during shutdown
+				return;
 
 			std::cerr << "Accept failed: " << error.message() << std::endl;
 			return;
@@ -96,28 +134,46 @@ namespace server
 
 		size_t clientId = ++_nextClientId;
 
-		std::cout << "Client connected: " << socket->remote_endpoint() << std::endl;
+		if constexpr (SERVER_DEBUG)
+		{
+			std::cout << "Client connected: " << socket->remote_endpoint() << std::endl;
+		}
 
-		_clients[clientId] = std::move(socket);
+		_clients[clientId] = std::move(ClientSession{ socket, 1024 });
 
-		_clientBuffers.emplace(clientId, 1024);
+#ifdef SERVER_SAVE_PREV_DATA
+		_accumulatedData[clientId] = std::vector<uint8_t>();
+#endif
 
 		if (_onConnect)
 			_onConnect();
 
-		start_session(*_clients[clientId], clientId);
-		start_accept(); // queue next accept
+
+
+		start_session(clientId);
+
+		start_accept(); 
 	}
 
-	void Server::start_session(asio::ip::tcp::socket& socket, size_t id)
+	void Server::start_session(size_t id)
 	{
-		std::cout << "Starting session with client: " << socket.remote_endpoint() << std::endl;
+		if (_clients.find(id) == _clients.end())
+		{
+			std::cerr << "Client ID " << id << " not found." << std::endl;
+			return;
+		}
+		ClientSession& client = _clients[id];
+
+		if constexpr (SERVER_DEBUG)
+		{
+			std::cout << "Starting session with client: " << client.socket->remote_endpoint() << std::endl;
+		}
 
 		size_t netId = htonl(id);
-		asio::write(socket, asio::buffer(&netId, sizeof(netId)));
+		asio::write(*client.socket, asio::buffer(&netId, sizeof(netId)));
 
-		socket.async_read_some(
-			asio::buffer(_clientBuffers[id]),
+		client.socket->async_read_some(
+			asio::buffer(client.buffer),
 			[this, id](const asio::error_code& error, std::size_t bytesTransferred)
 			{
 				handle_incoming_data(error, bytesTransferred, id);
@@ -126,40 +182,65 @@ namespace server
 
 	void Server::handle_incoming_data(const asio::error_code& error, size_t byteSizeTransferred, size_t id)
 	{
+		if (_clients.find(id) == _clients.end())
+		{
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cerr << "Client ID " << id << " not found." << std::endl;
+			}
+			return;
+		}
 		if (error || byteSizeTransferred == 0)
 		{
 			if (error != asio::error::eof && error != asio::error::operation_aborted)
 			{
+				if constexpr (SERVER_DEBUG)
+				{
 				std::cerr << "Error receiving data from client " << id << ": " << error.message() << std::endl;
+				}
 			}
 			else
 			{
-				std::cout << "Client " << id << " disconnected." << std::endl;
+				if constexpr (SERVER_DEBUG)
+				{
+					std::cout << "Client " << id << " disconnected." << std::endl;
+				}
 			}
 
 			if (_onDisconnect)
 				_onDisconnect();
 
 			_clients.erase(id);
-			_clientBuffers.erase(id);
 
-			std::cout << "Session with client " << id << " ended." << std::endl;
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cout << "Session with client " << id << " ended." << std::endl;
+			}
 			return;
 		}
 
-		if (byteSizeTransferred > _clientBuffers[id].size())
+		ClientSession& client = _clients[id];
+
+		if (byteSizeTransferred > client.buffer.size())
 		{
-			std::cerr << "Received data size exceeds buffer capacity for client " << id << ". Resizing buffer." << std::endl;
-			_clientBuffers[id].resize(byteSizeTransferred);
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cerr << "Received data size exceeds buffer capacity for client " << id << ". Resizing buffer." << std::endl;
+			}
+			client.buffer.resize(byteSizeTransferred);
 		}
 
-		std::vector<uint8_t> data(_clientBuffers[id].begin(), _clientBuffers[id].begin() + byteSizeTransferred);
+		std::vector<uint8_t> data(client.buffer.begin(), client.buffer.begin() + byteSizeTransferred);
+
+#ifdef SERVER_SAVE_PREV_DATA
+		_accumulatedData[id].insert(_accumulatedData[id].end(), data.begin(), data.end());
+#endif
 
 		for (const auto& callback : _onMessageReceived)
 			callback(data);
 
-		_clients[id]->async_read_some(
-			asio::buffer(_clientBuffers[id]),
+		client.socket->async_read_some(
+			asio::buffer(client.buffer),
 			[this, id](const asio::error_code& err, size_t transferred)
 			{
 				handle_incoming_data(err, transferred, id);

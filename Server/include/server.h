@@ -2,6 +2,8 @@
 
 #include <asio.hpp>
 
+
+
 namespace server
 {
 
@@ -20,6 +22,12 @@ namespace server
 
 		template<typename T>
 		void send_data(size_t clientId, const T& data);
+
+#ifdef SERVER_SAVE_PREV_DATA
+		std::vector<uint8_t> get_accumulated_data(size_t id);
+#endif
+		template<typename T>
+		void send_data_to_some(const std::vector<size_t>& clientId, const T& data);
 
 		template<typename T>
 		void send_data_to_all(const T& data);
@@ -41,8 +49,19 @@ namespace server
 		asio::ip::tcp::endpoint _endpoint;
 		asio::ip::tcp::acceptor _acceptor; 
 
-		std::unordered_map<size_t, std::shared_ptr<asio::ip::tcp::socket>> _clients;
-		std::unordered_map<size_t, std::vector<uint8_t>> _clientBuffers;
+		struct ClientSession
+		{
+			std::shared_ptr<asio::ip::tcp::socket> socket;
+			std::vector<uint8_t> buffer;
+
+			ClientSession(std::shared_ptr<asio::ip::tcp::socket> sock, size_t bufferSize)
+				: socket(std::move(sock)), buffer(bufferSize) {
+			}
+
+			ClientSession() = default;
+		};
+
+		std::unordered_map<size_t, ClientSession> _clients;
 
 
 		size_t _nextClientId = 0; 
@@ -51,12 +70,16 @@ namespace server
 		std::function<void()> _onConnect = nullptr;
 		std::vector<std::function<void(const std::vector<uint8_t>&)>> _onMessageReceived;
 
+#ifdef SERVER_SAVE_PREV_DATA
+		std::unordered_map<size_t, std::vector<uint8_t>> _accumulatedData;
+#endif
+
 		void start_accept(); 
 		
 		void handle_accept(std::shared_ptr<asio::ip::tcp::socket> socket, const asio::error_code& error);
 
 		//void handle
-		void start_session(asio::ip::tcp::socket& socket, size_t id);
+		void start_session(size_t id);
 
 		void handle_incoming_data(const asio::error_code& error, size_t byteSizeTransferred, size_t id);
 	};
