@@ -16,15 +16,41 @@ namespace server
 		{
 			const uint8_t* buffer = reinterpret_cast<const uint8_t*>(&data);
 			size_t size = sizeof(T);
-			asio::write(*it->second, asio::buffer(buffer, size));
+			asio::write(*it->second.socket, asio::buffer(buffer, size));
+		}
+		catch (const asio::system_error& e) //NOTE: THERE IS A BUG WITH 
+		{
+			std::cerr << "Send failed: " << e.what() << std::endl;
+			it->second.socket->close(); 
+			_clients.erase(it); 
+		}
+	}
+
+	template<>
+	inline void Server::send_data<std::string>(size_t clientId, const std::string& data)
+	{
+		auto it = _clients.find(clientId);
+		if (it == _clients.end())
+		{
+			std::cerr << "Client ID " << clientId << " not found." << std::endl;
+			return;
+		}
+		try
+		{
+			uint32_t dataSize = static_cast<uint32_t>(data.size());
+			uint32_t netDataSize = htonl(dataSize); // Convert to network byte order
+			asio::write(*it->second.socket, asio::buffer(&netDataSize, sizeof(netDataSize)));
+			// Then, send the actual string data
+			asio::write(*it->second.socket, asio::buffer(data.data(), data.size()));
 		}
 		catch (const asio::system_error& e)
 		{
 			std::cerr << "Send failed: " << e.what() << std::endl;
-			it->second->close(); 
+			it->second.socket->close(); 
 			_clients.erase(it); 
 		}
 	}
+
 	
 	template<typename T>
 	inline void Server::send_data_to_some(const std::vector<size_t>& clientId, const T& data)

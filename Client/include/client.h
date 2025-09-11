@@ -3,6 +3,14 @@
 
 namespace client
 {
+	enum class ClientError
+	{
+		None = 0,
+		ConnectFailed,
+		SendFailed,
+		ReceiveFailed,
+		Disconnected
+	};
 
 	class Client
 	{
@@ -10,7 +18,7 @@ namespace client
 
 		Client(const std::string& host, unsigned short port, std::function<void()> onConnect = nullptr, std::function<void()> onDisonnect = nullptr);
 
-		void connect();
+		ClientError connect();
 
 		void set_on_connect(std::function<void()> callback);
 		void set_on_disconnect(std::function<void()> callback);
@@ -39,7 +47,7 @@ namespace client
 
 		size_t _clientId = 0;
 		
-		std::vector<std::function<void(const std::vector<uint8_t>&)>> _onMessageReceived;
+		std::function<void(const std::vector<uint8_t>&)> _onMessageReceived;
 		void run(); 
 		void handle_receive(const asio::error_code& error, size_t bytesTransferred);
 	};

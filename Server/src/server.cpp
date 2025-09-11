@@ -46,7 +46,7 @@ namespace server
 
 	void Server::add_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback)
 	{
-		_onMessageReceived.push_back(std::move(callback));
+		_onMessageReceived = std::move(callback);
 	}
 
 #ifdef SERVER_SAVE_PREV_DATA
@@ -148,8 +148,6 @@ namespace server
 		if (_onConnect)
 			_onConnect();
 
-
-
 		start_session(clientId);
 
 		start_accept(); 
@@ -235,9 +233,7 @@ namespace server
 #ifdef SERVER_SAVE_PREV_DATA
 		_accumulatedData[id].insert(_accumulatedData[id].end(), data.begin(), data.end());
 #endif
-
-		for (const auto& callback : _onMessageReceived)
-			callback(data);
+		_onMessageReceived(data);
 
 		client.socket->async_read_some(
 			asio::buffer(client.buffer),

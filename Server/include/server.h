@@ -11,7 +11,6 @@ namespace server
 	{
 	public:
 
-		// Constructor: Initializes the server with a specified port
 		Server(unsigned short port, std::function<void()> onConnect = nullptr, std::function<void()> onDisconnect = nullptr);
 
 		void set_on_disconnect(std::function<void()> callback);
@@ -68,7 +67,7 @@ namespace server
 
 		std::function<void()> _onDisconnect = nullptr;
 		std::function<void()> _onConnect = nullptr;
-		std::vector<std::function<void(const std::vector<uint8_t>&)>> _onMessageReceived;
+		std::function<void(const std::vector<uint8_t>&)> _onMessageReceived;
 
 #ifdef SERVER_SAVE_PREV_DATA
 		std::unordered_map<size_t, std::vector<uint8_t>> _accumulatedData;

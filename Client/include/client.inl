@@ -19,4 +19,18 @@ namespace client
 			stop(); // Stop the client if sending fails
 		}
 	}
+
+	template<>
+	inline void Client::send<std::string>(const std::string& data)
+	{
+		try
+		{
+			asio::write(_socket, asio::buffer(data.data(), data.size()));
+		}
+		catch (const asio::system_error& e)
+		{
+			std::cerr << "Send failed: " << e.what() << std::endl;
+			stop();
+		}
+	}
 }

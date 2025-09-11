@@ -17,7 +17,13 @@ namespace client
 			_onDisconnect = std::move(onDisonnect);
 		}
 
-		connect();
+		ClientError err = connect();
+
+		if (err != ClientError::None)
+		{
+			std::cout << "Connection Not Found" << std::endl;
+			return;
+		}
 
 		_ioThread = std::thread([this]()
 			{
@@ -34,7 +40,7 @@ namespace client
 
 	}
 
-	void Client::connect()
+	ClientError Client::connect()
 	{
 		_receiveBuffer.resize(1024);
 
@@ -44,7 +50,7 @@ namespace client
 		{
 			std::cerr << "Connect failed: " << socketEc.message() << std::endl;
 			stop();
-			return;
+			return ClientError::ConnectFailed;
 		}
 
 		asio::error_code dataEc;
@@ -54,7 +60,7 @@ namespace client
 		{
 			std::cerr << "Initial connection failed: " << dataEc.message() << std::endl;
 			stop(); 
-			return;
+			return ClientError::ConnectFailed;
 		}
 		_clientId = data;
 
@@ -68,6 +74,8 @@ namespace client
 			{
 				handle_receive(error, bytesTransferred);
 			});
+
+		return ClientError::None;
 
 	}
 
@@ -83,15 +91,15 @@ namespace client
 
 	void Client::set_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback)
 	{
-		_onMessageReceived.push_back(std::move(callback));
+		_onMessageReceived = std::move(callback);
 	}
 
 	void Client::stop()
 	{
+		_ioContext.stop();
 		if (_ioThread.joinable())
 		{
 			_ioThread.join();
-			_ioContext.stop();
 		}
 		if (_socket.is_open())
 		{
@@ -148,14 +156,18 @@ namespace client
 			return;
 		}
 		
-		std::vector<uint8_t> data(_receiveBuffer.begin(), _receiveBuffer.begin() + bytesTransferred); // this might copy the buffer from
-																							//the beginning to the buffer th the bytes transferred,
-																							//and if it was inserted twice, it might read from wrong offset
-		for (const auto& msg : _onMessageReceived)
-		{
-			msg(data);
-		}
-	}
+		std::vector<uint8_t> data(_receiveBuffer.begin(), _receiveBuffer.begin() + bytesTransferred); 
+		
+		// this might copy the buffer from
+		//the beginning to the buffer th the bytes transferred,
+		//and if it was inserted twice, it might read from wrong offset
+		_onMessageReceived(data);
 
+		_socket.async_receive(asio::buffer(_receiveBuffer),
+			[this](const asio::error_code& error, size_t bytesTransferred)
+			{
+				handle_receive(error, bytesTransferred);
+			});
+	}
 
 }
