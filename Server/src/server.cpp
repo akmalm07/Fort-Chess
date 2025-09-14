@@ -12,7 +12,7 @@ namespace server
 		if (onConnect) _onConnect = std::move(onConnect);
 		if (onDisconnect) _onDisconnect = std::move(onDisconnect);
 
-		start_accept();
+		start_accept();		
 
 		_ioThread = std::thread([this]() 
 			{
@@ -44,14 +44,45 @@ namespace server
 		_onConnect = std::move(callback);
 	}
 
+	size_t Server::client_count() const
+	{
+		return _clients.size();
+	}
+
 	void Server::add_on_message_received(std::function<void(const std::vector<uint8_t>&)> callback)
 	{
 		_onMessageReceived = std::move(callback);
 	}
 
+	void Server::stop_accepting()
+	{
+		_acceptor.close();
+		if constexpr (SERVER_DEBUG)
+		{
+			std::cout << "Server stopped accepting new connections." << std::endl;
+		}
+	}
+
+	std::vector<uint32_t> Server::get_all_client_ids() const
+	{
+		std::vector<uint32_t> ids;
+		ids.reserve(_clients.size());
+		for (const auto& [id, _] : _clients)
+		{
+			ids.push_back(id);
+		}
+		return ids;
+	}
+
+	uint32_t Server::get_last_client_sent_data() const
+	{
+		return _lastClientSentData;
+	}
+
 #ifdef SERVER_SAVE_PREV_DATA
 
-	std::vector<uint8_t> Server::get_accumulated_data(size_t id) 
+
+	std::vector<uint8_t> Server::get_accumulated_data(size_t id)
 	{
 		auto it = _clients.find(id);
 		if (it == _clients.end())
@@ -78,6 +109,35 @@ namespace server
 		return _accumulatedData.at(id);
 	}
 #endif
+
+	uint32_t Server::get_current_client_id() const
+	{
+		return _nextClientId;
+	}
+
+	void Server::disconnect_client(uint32_t clientId)
+	{
+		auto it = _clients.find(clientId);
+		if (it != _clients.end())
+		{
+			if (it->second.socket->is_open())
+			{
+				it->second.socket->close();
+			}
+			_clients.erase(it);
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cout << "Client " << clientId << " disconnected by server." << std::endl;
+			}
+		}
+		else
+		{
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cerr << "Client ID " << clientId << " not found." << std::endl;
+			}
+		}
+	}
 
 	asio::ip::tcp::endpoint Server::get_endpoint() const
 	{
@@ -125,14 +185,13 @@ namespace server
 	{
 		if (error)
 		{
-			if (error == asio::error::operation_aborted)
-				return;
-
-			std::cerr << "Accept failed: " << error.message() << std::endl;
-			return;
+			if constexpr (SERVER_DEBUG)
+			{
+				std::cerr << "Accept failed: " << error.message() << std::endl;
+			}
 		}
 
-		size_t clientId = ++_nextClientId;
+		uint32_t clientId = ++_nextClientId;
 
 		if constexpr (SERVER_DEBUG)
 		{
@@ -145,15 +204,18 @@ namespace server
 		_accumulatedData[clientId] = std::vector<uint8_t>();
 #endif
 
-		if (_onConnect)
-			_onConnect();
 
 		start_session(clientId);
 
-		start_accept(); 
+
+		if (_onConnect)
+			_onConnect();
+		
+		if (_acceptor.is_open())
+			start_accept(); 
 	}
 
-	void Server::start_session(size_t id)
+	void Server::start_session(uint32_t id)
 	{
 		if (_clients.find(id) == _clients.end())
 		{
@@ -167,7 +229,7 @@ namespace server
 			std::cout << "Starting session with client: " << client.socket->remote_endpoint() << std::endl;
 		}
 
-		size_t netId = htonl(id);
+		uint32_t netId = htonl(id);
 		asio::write(*client.socket, asio::buffer(&netId, sizeof(netId)));
 
 		client.socket->async_read_some(
@@ -188,20 +250,29 @@ namespace server
 			}
 			return;
 		}
+
 		if (error || byteSizeTransferred == 0)
 		{
-			if (error != asio::error::eof && error != asio::error::operation_aborted)
+			if (error == asio::error::eof)
 			{
 				if constexpr (SERVER_DEBUG)
 				{
-				std::cerr << "Error receiving data from client " << id << ": " << error.message() << std::endl;
+					std::cout << "Client " << id << " disconnected." << std::endl;
+				}
+			}
+			else if (error == asio::error::operation_aborted || error == asio::error::connection_reset)
+			{
+				if constexpr (SERVER_DEBUG)
+				{
+					std::cout << "Client " << id << " disconnected ungracfully." << std::endl;
 				}
 			}
 			else
 			{
 				if constexpr (SERVER_DEBUG)
 				{
-					std::cout << "Client " << id << " disconnected." << std::endl;
+					std::cerr << "Error receiving data from client " << id << ": " << error.message() << std::endl;
+
 				}
 			}
 
@@ -209,6 +280,8 @@ namespace server
 				_onDisconnect();
 
 			_clients.erase(id);
+
+			_nextClientId--;
 
 			if constexpr (SERVER_DEBUG)
 			{
@@ -228,11 +301,14 @@ namespace server
 			client.buffer.resize(byteSizeTransferred);
 		}
 
+		_lastClientSentData = id;
+
 		std::vector<uint8_t> data(client.buffer.begin(), client.buffer.begin() + byteSizeTransferred);
 
 #ifdef SERVER_SAVE_PREV_DATA
 		_accumulatedData[id].insert(_accumulatedData[id].end(), data.begin(), data.end());
 #endif
+		
 		_onMessageReceived(data);
 
 		client.socket->async_read_some(

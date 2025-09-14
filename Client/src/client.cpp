@@ -16,28 +16,6 @@ namespace client
 		{
 			_onDisconnect = std::move(onDisonnect);
 		}
-
-		ClientError err = connect();
-
-		if (err != ClientError::None)
-		{
-			std::cout << "Connection Not Found" << std::endl;
-			return;
-		}
-
-		_ioThread = std::thread([this]()
-			{
-			try {
-				_ioContext.run();
-			}
-			catch (const std::exception& e) 
-			{
-				std::cerr << "IO context error: " << e.what() << std::endl;
-			}
-			});
-
-		std::cout << "Client started on " << _endpoint.address().to_string() << ":" << _endpoint.port() << std::endl;
-
 	}
 
 	ClientError Client::connect()
@@ -49,20 +27,18 @@ namespace client
 		if (socketEc)
 		{
 			std::cerr << "Connect failed: " << socketEc.message() << std::endl;
-			stop();
 			return ClientError::ConnectFailed;
 		}
 
 		asio::error_code dataEc;
-		size_t data = 0;
+		uint32_t data = 0;
 		_socket.receive(asio::buffer(&data, sizeof(data)), 0, dataEc);
 		if (dataEc)
 		{
 			std::cerr << "Initial connection failed: " << dataEc.message() << std::endl;
-			stop(); 
 			return ClientError::ConnectFailed;
 		}
-		_clientId = data;
+		_clientId = ntohl(data);
 
 		if (_onConnect != nullptr)
 		{
@@ -74,6 +50,20 @@ namespace client
 			{
 				handle_receive(error, bytesTransferred);
 			});
+
+
+		_ioThread = std::thread([this]()
+			{
+				try {
+					_ioContext.run();
+				}
+				catch (const std::exception& e)
+				{
+					std::cerr << "IO context error: " << e.what() << std::endl;
+				}
+			});
+
+		std::cout << "Client started on " << _endpoint.address().to_string() << ":" << _endpoint.port() << std::endl;
 
 		return ClientError::None;
 
@@ -96,7 +86,14 @@ namespace client
 
 	void Client::stop()
 	{
+
+		if (_onDisconnect)
+		{
+			_onDisconnect();
+		}
+
 		_ioContext.stop();
+		
 		if (_ioThread.joinable())
 		{
 			_ioThread.join();
@@ -104,11 +101,6 @@ namespace client
 		if (_socket.is_open())
 		{
 			_socket.close();
-		}
-
-		if (_onDisconnect)
-		{
-			_onDisconnect();
 		}
 
 		_receiveBuffer.clear();
@@ -138,23 +130,15 @@ namespace client
 
 	void Client::handle_receive(const asio::error_code& error, size_t bytesTransferred)
 	{
-		bool errorOccured = false;
 		if (error)
 		{
 			std::cerr << "Receive failed: " << error.message() << std::endl;
-			errorOccured = true;
 		}
 		if (error == asio::error::eof || bytesTransferred == 0)
 		{
 			std::cout << "Server disconnected." << std::endl;
-			errorOccured = true;
 		}
-		if (errorOccured)
-		{
-			std::cout << "Stopping client due to error." << std::endl;
-			stop();
-			return;
-		}
+
 		
 		std::vector<uint8_t> data(_receiveBuffer.begin(), _receiveBuffer.begin() + bytesTransferred); 
 		

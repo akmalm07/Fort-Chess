@@ -37,10 +37,6 @@ namespace server
 		}
 		try
 		{
-			uint32_t dataSize = static_cast<uint32_t>(data.size());
-			uint32_t netDataSize = htonl(dataSize); // Convert to network byte order
-			asio::write(*it->second.socket, asio::buffer(&netDataSize, sizeof(netDataSize)));
-			// Then, send the actual string data
 			asio::write(*it->second.socket, asio::buffer(data.data(), data.size()));
 		}
 		catch (const asio::system_error& e)

@@ -1,5 +1,9 @@
 #pragma once
 
+#include <functional>
+#include <thread>
+
+#include <asio.hpp>
 
 namespace client
 {
@@ -17,6 +21,11 @@ namespace client
 	public:
 
 		Client(const std::string& host, unsigned short port, std::function<void()> onConnect = nullptr, std::function<void()> onDisonnect = nullptr);
+
+		Client(const Client&) = default;
+		Client& operator=(const Client&) = default;
+		Client(Client&&) = default;
+		Client& operator=(Client&&) = default;
 
 		ClientError connect();
 
@@ -45,7 +54,7 @@ namespace client
 		std::function<void()> _onDisconnect = nullptr;
 		std::function<void()> _onConnect = nullptr;
 
-		size_t _clientId = 0;
+		uint32_t _clientId = 0;
 		
 		std::function<void(const std::vector<uint8_t>&)> _onMessageReceived;
 		void run(); 

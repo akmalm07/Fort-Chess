@@ -9,7 +9,7 @@
 
 constexpr bool SERVER_DEBUG = true;
 
-#elif
+#else
 
 constexpr bool SERVER_DEBUG = false;
 
