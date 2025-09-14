@@ -26,6 +26,12 @@ namespace chess
 	};
 
 
+	struct TimeOut
+	{
+		int position;
+		std::chrono::steady_clock::time_point expiry;
+	};
+
 	struct BoardData
 	{
 	public:
@@ -131,7 +137,7 @@ namespace chess
 
 		ChessEngine() = default;
 
-		ChessEngine(Player player);
+		ChessEngine(Player player, unsigned int timeoutPerMoveInMilliseconds);
 
 		ChessEngine(const ChessEngine&) = delete;
 		ChessEngine& operator=(const ChessEngine&) = delete;
@@ -147,6 +153,8 @@ namespace chess
 
 		void opponent_promote(ToFrom toFrom, PromotionResult res);
 
+		void check_timeouts();
+
 		Pieces piece_at(int index) const;
 
 		int piece_count() const;
@@ -159,7 +167,7 @@ namespace chess
 
 		size_t get_board_size() const;
 
-		int get_game_moves_count() const { return gameMovesCount; }
+		int get_game_moves_count() const;
 
 		WallState build_wall(int place, int direction);
 		
@@ -192,6 +200,8 @@ namespace chess
 
 		Player player;
 
+		unsigned int timeoutPerMoveMs = 3000; 
+
 		std::array<bool, 112> chessBorders = { false };
 
 		ToFrom waitingForPromotion = { -1, -1 };
@@ -199,6 +209,8 @@ namespace chess
 		std::array<BoardData, 64> boardSetup;
 
 		std::vector<EnPassentOppertunity> enPassantOppertunities;
+
+		std::vector<TimeOut> timeOutPositions;
 
 		int piecesLeft;
 
@@ -230,6 +242,7 @@ namespace chess
 
 		int row_col_to_index(int row, int col) const;
 
+		bool is_in_timeout(int from);
 		bool en_passent_avalible(int to) const;
 
 		MoveState move_up_down_left_right(int from, int to, bool canBreakWalls);
@@ -240,6 +253,9 @@ namespace chess
 		void break_wall_if_encoutered(int referencePos, Direction dir);
 
 		void move_piece_no_check(int from, int to);
+
+		void add_timeout(int position);
+
 	};
 
 }

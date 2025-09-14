@@ -20,8 +20,8 @@ namespace chess
 
 	}
 
-	ChessEngine::ChessEngine(Player p)
-		: player(p)
+	ChessEngine::ChessEngine(Player p, unsigned int timeoutPerMoveInMilliseconds)
+		: player(p), timeoutPerMoveMs(timeoutPerMoveInMilliseconds)
 	{
 		reset_board();
 	}
@@ -119,6 +119,18 @@ namespace chess
 		}
 	}
 
+	void ChessEngine::check_timeouts()
+	{
+		auto now = std::chrono::steady_clock::now();
+		for (auto it = timeOutPositions.begin(); it != timeOutPositions.end();)
+		{
+			if (now >= it->expiry)
+				it = timeOutPositions.erase(it);
+			else
+				++it;
+		}
+	}
+
 
 	Pieces ChessEngine::piece_at(int index) const
 	{
@@ -195,6 +207,11 @@ namespace chess
 		return 64;
 	}
 
+	int ChessEngine::get_game_moves_count() const
+	{
+		return gameMovesCount; 
+	}
+
 	WallState ChessEngine::build_wall(int place, int direction)
 	{
 		if (boardSetup[place].piece != (player == PL_WHITE ? W_PAWN : B_PAWN) || place == direction)
@@ -228,7 +245,10 @@ namespace chess
 
 		if (auto& wall = boardSetup[place].walls[(int)dir - 1])
 		{
+			//SHould I allow walls to be counted as moves?
+			//++gameMovesCount;
 			wall->get() = true;
+			add_timeout(place);
 		}
 		else
 			return WL_INVALID;
@@ -373,10 +393,13 @@ namespace chess
 
 	MoveState ChessEngine::handle_pawn_move(int from, int to)
 	{
+
+		if (is_in_timeout(from) || to == from)
+			return MOVE_INVALID;
 		std::function<bool(const RowCol&)> move_to_right_left = [](const RowCol& rc)
-			{
-				return rc.toCol == rc.fromCol - 1 || rc.toCol == rc.fromCol + 1;
-			};
+		{
+			return rc.toCol == rc.fromCol - 1 || rc.toCol == rc.fromCol + 1;
+		};
 
 		RowCol rc = get_row_col(from, to);
 
@@ -444,10 +467,10 @@ namespace chess
 
 	MoveState ChessEngine::handle_bishop_move(int from, int to)
 	{
-		RowCol rc = get_row_col(from, to);
-
-		if (to == from)
+		if (is_in_timeout(from) || to == from)
 			return MOVE_INVALID;
+
+		RowCol rc = get_row_col(from, to);
 
 		auto handle_diagonal_move = [this, to, from](DiagnolDirection dir) -> MoveState
 			{
@@ -501,6 +524,10 @@ namespace chess
 
 	MoveState ChessEngine::handle_knight_move(int from, int to)
 	{
+
+		if (is_in_timeout(from) || to == from)
+			return MOVE_INVALID;
+
 		RowCol rc = get_row_col(from, to);
 		if ((std::abs(rc.toRow - rc.fromRow) == 2 && std::abs(rc.toCol - rc.fromCol) == 1) ||
 			(std::abs(rc.toRow - rc.fromRow) == 1 && std::abs(rc.toCol - rc.fromCol) == 2))
@@ -536,6 +563,9 @@ namespace chess
 
 	MoveState ChessEngine::handle_king_move(int from, int to)
 	{
+		if (is_in_timeout(from) || to == from)
+			return MOVE_INVALID;
+
 		RowCol rc = get_row_col(from, to);
 		if (std::abs(rc.toRow - rc.fromRow) <= 1 && std::abs(rc.toCol - rc.fromCol) <= 1)
 		{
@@ -578,6 +608,7 @@ namespace chess
 				boardSetup[58].piece = B_ROOK;
 				boardSetup[59].piece = EMPTY;
 				kingMoved = true;
+				++gameMovesCount;
 				return MOVE_SUCCESS;
 			}
 			else if (to == 61 && boardSetup[63].piece == B_ROOK && boardSetup[62].piece == EMPTY && boardSetup[61].piece == EMPTY && boardSetup[60].piece == EMPTY)
@@ -588,6 +619,7 @@ namespace chess
 				boardSetup[62].piece = EMPTY;
 				boardSetup[63].piece = EMPTY;
 				kingMoved = true;
+				++gameMovesCount;
 				return MOVE_SUCCESS;
 			}
 		}
@@ -601,6 +633,7 @@ namespace chess
 				boardSetup[57].piece = W_ROOK;
 				boardSetup[60].piece = EMPTY;
 				kingMoved = true;
+				++gameMovesCount;
 				return MOVE_SUCCESS;
 			}
 			else if (to == 62 && boardSetup[63].piece == W_ROOK && boardSetup[62].piece == EMPTY && boardSetup[61].piece == EMPTY)
@@ -610,6 +643,7 @@ namespace chess
 				boardSetup[62].piece = W_ROOK;
 				boardSetup[63].piece = EMPTY;
 				kingMoved = true;
+				++gameMovesCount;
 				return MOVE_SUCCESS;
 			}
 		}
@@ -620,6 +654,16 @@ namespace chess
 	int ChessEngine::row_col_to_index(int row, int col) const
 	{
 		return (row * 8) + col;
+	}
+
+	bool ChessEngine::is_in_timeout(int from)
+	{
+		for (const auto& to : timeOutPositions)
+		{
+			if (to.position == from)
+				return true;
+		}
+		return false;
 	}
 
 	bool ChessEngine::en_passent_avalible(int to) const
@@ -638,7 +682,7 @@ namespace chess
 	{
 		RowCol rc = get_row_col(from, to);
 
-		if (to == from)
+		if (is_in_timeout(from) || to == from)
 			return MOVE_INVALID;
 
 		std::function<MoveState(Direction)> handle_straight_line_move = [this, to, from, canBreakWalls](Direction dir) -> MoveState
@@ -762,8 +806,14 @@ namespace chess
 		}
 
 		++gameMovesCount;
+		
+		add_timeout(to);
 	}
 
+	void ChessEngine::add_timeout(int position)
+	{
+		timeOutPositions.emplace_back(position, std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutPerMoveMs));
+	}
 
 	bool ChessEngine::can_move_straight_wall_check(int refPos, Direction dir) const
 	{

@@ -145,7 +145,6 @@ namespace chess
 		void render_promotion_options();
 
 		void handle_promotion_input();
+
 	};
-
-
 }

@@ -55,6 +55,7 @@ project "Server"
     filter "configurations:Release"
         symbols "Off"
         optimize "On"
+        buildoptions { "/O1" }
         defines "NDEBUG"
         runtime "Release"  
 

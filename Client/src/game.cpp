@@ -26,15 +26,15 @@ namespace chess
 
 			if (!startGame)
 			{
-				if (message == "BLACK\0")
+				if (message == "BLACK")
 				{
-					chessEngine = ChessEngine(PL_BLACK);
+					chessEngine = ChessEngine(PL_BLACK, 2000);
 					startGame = true;
 					return;
 				}
-				else if (message == "WHITE\0")
+				else if (message == "WHITE")
 				{
-					chessEngine = ChessEngine(PL_WHITE);
+					chessEngine = ChessEngine(PL_WHITE, 2000);
 					startGame = true;
 					return;
 				}
@@ -78,17 +78,16 @@ namespace chess
 			}
 		});
 
-		std::string dots = ".";
+		std::string base = "Waiting for Server";
+		std::string dots = base;
+
 		while (!startGame)
 		{
+			std::cout << "\r" << dots << std::flush;
 
-			std::cout << "Waiting for Server " << dots << std::endl;
 			std::this_thread::sleep_for(std::chrono::milliseconds(500));
-			
-			if (dots.size() % 4 == 0)
-				dots = ".";
-			else
-				dots += ".";
+
+			dots += ".";
 		}
 
 		SetConfigFlags(FLAG_WINDOW_RESIZABLE);
@@ -116,6 +115,8 @@ namespace chess
 			render_board();
 
 			EndDrawing();
+
+			chessEngine.check_timeouts();
 		}
 	}
 
