@@ -29,6 +29,7 @@ namespace chess
 	struct BoardData
 	{
 	public:
+
 		Pieces piece = EMPTY;
 		std::array<std::optional<std::reference_wrapper<bool>>, 4> walls;
 
@@ -40,14 +41,14 @@ namespace chess
 	{
 	private:
 		unsigned int piecesLeft = 12;
-		std::function<void(const std::array<BoardData, 64>&)> onCapture;
+		std::function<void()> onCapture;
 
 	public:
 		TotalPiecesCallback() = default;
-		TotalPiecesCallback(unsigned int piecesLeft, std::function<void(const std::array<BoardData, 64>&)> func = nullptr)
+		TotalPiecesCallback(unsigned int piecesLeft, std::function<void()> func = nullptr)
 			: piecesLeft(piecesLeft), onCapture(std::move(func)) {}
 		
-		void set_on_capture(std::function<void(const std::array<BoardData, 64>&)>&& func)
+		void set_on_capture(std::function<void()>&& func)
 		{
 			onCapture = std::move(func);
 		}
@@ -62,13 +63,9 @@ namespace chess
 		void operator--()
 		{
 			piecesLeft--;
+			if (onCapture)
+				onCapture();
 		}
-
-		void call_on_capture(const std::array<BoardData, 64>& board)
-		{
-			onCapture(board);
-		}
-
 	};
 
 	enum Player
@@ -84,6 +81,7 @@ namespace chess
 		MOVE_CAPTURE,
 		MOVE_PROMOTION,
 		MOVE_PROMOTION_CAPTURE,
+		MOVE_EN_PASSENT_OPPORTUNITY,
 	};
 
 	enum WallState
@@ -135,11 +133,17 @@ namespace chess
 
 		ChessEngine(Player player);
 
-		void init();
+		ChessEngine(const ChessEngine&) = delete;
+		ChessEngine& operator=(const ChessEngine&) = delete;
+
+		ChessEngine(ChessEngine&&) noexcept = default;           
+		ChessEngine& operator=(ChessEngine&&) noexcept = default;
 
 		void opponent_move(int from, int to);
 
 		void reset_board();
+
+		void add_en_passent_oppertunity(int underPosition, int whenImplemented);
 
 		void opponent_promote(ToFrom toFrom, PromotionResult res);
 
@@ -155,9 +159,15 @@ namespace chess
 
 		size_t get_board_size() const;
 
+		int get_game_moves_count() const { return gameMovesCount; }
+
 		WallState build_wall(int place, int direction);
+		
+		void build_wall_opponent(int place, int direction);
 
 		bool piece_exists(int index) const;
+
+		int get_under_position_of(int square);
 
 		bool valid_piece(int index) const;
 
@@ -177,7 +187,7 @@ namespace chess
 		struct EnPassentOppertunity
 		{
 			int underPosition;
-			bool whenImplemented = false;
+			int whenImplemented;
 		};
 
 		Player player;
@@ -190,7 +200,7 @@ namespace chess
 
 		std::vector<EnPassentOppertunity> enPassantOppertunities;
 
-		TotalPiecesCallback piecesLeft;
+		int piecesLeft;
 
 		size_t gameMovesCount = 0;
 

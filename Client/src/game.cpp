@@ -8,9 +8,7 @@ namespace chess
 
 	Game::Game(int screenSize, int minSize, const char* title, const std::string& host, unsigned short port)
 		: client(host, port), isGameOver(false), minSize(minSize), screenSize(screenSize), title(title)
-	{
-		chessEngine.init();
-		
+	{		
 		SetTraceLogLevel(LOG_ERROR);
 
 		client::ClientError err = client.connect();
@@ -24,7 +22,6 @@ namespace chess
 		client.set_on_message_received([this](const std::vector<uint8_t>& data) 
 		{
 			std::string message(data.begin(), data.end());
-			std::cout << "Received message: " << message << std::endl;
 			message.erase(std::remove(message.begin(), message.end(), '\0'), message.end());
 
 			if (!startGame)
@@ -52,13 +49,27 @@ namespace chess
 			}
 			else if (message.contains("TO"))
 			{
-				std::pair<int, int> toFrom = process_str_to_pair(message);
+				std::pair<int, int> toFrom = process_str_to_pair(message, 3);
 				chessEngine.opponent_move(toFrom.first, toFrom.second);
+			}
+			else if (message.contains("WALL"))
+			{
+				std::pair<int, int> toFrom = process_str_to_pair_wall(message);
+				chessEngine.build_wall_opponent(toFrom.first, toFrom.second);
+			}
+			else if (message.contains("ENPS"))
+			{
+				std::pair<int, int> toFrom = process_str_to_pair(message, 5);
+				chessEngine.add_en_passent_oppertunity(toFrom.first, toFrom.second);
+			}
+			else if (message == "WIN")
+			{
+
 			}
 			else if (message == "LOSE")
 			{
 				isGameOver = true;
-				std::cout << "You Win!" << std::endl;
+				std::cout << "You Lost!" << std::endl;
 			}
 			else
 			{
@@ -195,13 +206,20 @@ namespace chess
 		{
 			if (click.buildWall && chessEngine.build_wall(click.pos.first, click.pos.second) == WL_SUCCESS)
 			{
+				client.send(std::string("WALL ") + std::to_string(chessEngine.reverse(click.pos.first)) + " " + std::to_string(chessEngine.reverse(click.pos.second)));
 				click.reset();
 			}
 			else
 			{
 				switch (chessEngine.move_piece(click.pos.first, click.pos.second))
 				{
-
+				case MOVE_EN_PASSENT_OPPORTUNITY:
+				{
+					client.send(std::string("ENPS ") + std::to_string(chessEngine.reverse(chessEngine.get_under_position_of(click.pos.second))) + " " + std::to_string(chessEngine.get_game_moves_count()));
+					client.send(std::string("TO ") + std::to_string(chessEngine.reverse(click.pos.first)) + " " + std::to_string(chessEngine.reverse(click.pos.second)));
+					click.reset();
+					break;
+				}
 				case MOVE_PROMOTION:
 				case MOVE_PROMOTION_CAPTURE:
 				{
@@ -263,9 +281,9 @@ namespace chess
 
 	}
 
-	std::pair<int, int> Game::process_str_to_pair(const std::string& str) const
+	std::pair<int, int> Game::process_str_to_pair(const std::string& str, unsigned int offset) const
 	{
-		std::istringstream iss(str.substr(3));
+		std::istringstream iss(str.substr(offset));
 		std::string s;
 		std::vector<std::string> strs;
 
@@ -306,6 +324,21 @@ namespace chess
 			res = PR_QUEEN;
 
 		return { { std::stoi(strs[0]), std::stoi(strs[1]) }, res };
+	}
+
+	std::pair<int, int> Game::process_str_to_pair_wall(const std::string& str) const
+	{
+		std::istringstream iss(str.substr(5));
+		std::string s;
+		std::vector<std::string> strs;
+		while (getline(iss, s, ' '))
+			strs.push_back(s);
+		if (strs.size() < 2)
+			return { 0, DIR_NONE };
+		strs.resize(2);
+		
+		return { std::stoi(strs[0]), std::stoi(strs[1]) };
+
 	}
 
 	std::string to_str(PromotionResult res)

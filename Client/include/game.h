@@ -135,9 +135,9 @@ namespace chess
 		void render_board();
 		void load_assets();
 
-		std::pair<int, int> process_str_to_pair(const std::string& str) const;
+		std::pair<int, int> process_str_to_pair(const std::string& str, unsigned int offset) const;
 		std::pair<ToFrom, PromotionResult> process_promotion(const std::string& str) const;
-
+		std::pair<int, int> process_str_to_pair_wall(const std::string& str) const;
 		// Handles
 		void handle_resize();
 		void handle_clicks();
