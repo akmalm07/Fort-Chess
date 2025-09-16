@@ -1,6 +1,7 @@
 #include "headers.h"
 #include "client.h"
 
+
 namespace client
 {
 	Client::Client(const std::string& host, unsigned short port, std::function<void()> onConnect, std::function<void()> onDisonnect)
