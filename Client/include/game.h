@@ -7,7 +7,7 @@
 #include <vector>
 #include <utility>
 #include "engine.h"
-#include "client.h"
+#include "websockets.h"
 
 
 struct Rectangle;
@@ -41,6 +41,8 @@ namespace chess
 		~Game();
 
 	private:
+
+		static Game* instance;
 
 
 		int screenSize; // one value becuase the screen will always be square
@@ -117,23 +119,28 @@ namespace chess
 
 		Player player = PL_WHITE;
 
-		client::Client client;
+		websocket::WebSocketClient client;
 
 		bool startGame = false;
 
 
 	private:
 
+		static void game_loop_stub(void* arg);
+
+		void game_loop();
+
 		void process_input();
 
 		int get_x_pos(int index) const;
 		int get_y_pos(int index) const;
 
-		int get_index(int x, int y) const;
 		int get_index_from_mouse_pos() const;
 
 		void render_board();
 		void load_assets();
+
+		int get_number(const std::string& number) const;
 
 		std::pair<int, int> process_str_to_pair(const std::string& str, unsigned int offset) const;
 		std::pair<ToFrom, PromotionResult> process_promotion(const std::string& str) const;

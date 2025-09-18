@@ -20,14 +20,3 @@ group "fort-chess"
     include "client/fort-chess.lua"
 -- Include directories relative to root folder
 
-
-
-
-workspace "Fort-Chess-Server"
-    architecture "x64"
-    startproject "Server"
-    configurations { "Debug", "Release" }
-
-
-group  "fort-chess-server"
-    include "server/fort-chess-server.lua"

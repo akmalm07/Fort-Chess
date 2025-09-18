@@ -5,68 +5,84 @@
 namespace chess
 {
 
+	Game* Game::instance = nullptr;
 
 	Game::Game(int screenSize, int minSize, const char* title, const std::string& host, unsigned short port)
-		: client(host, port), isGameOver(false), minSize(minSize), screenSize(screenSize), title(title)
+		: isGameOver(false), minSize(minSize), screenSize(screenSize), title(title)
 	{		
 		SetTraceLogLevel(LOG_ERROR);
 
-		client::ClientError err = client.connect();
-
-		if (err != client::ClientError::None)
-		{
-			std::cout << "Connection Not Found" << std::endl;
+		websocket::WebSocketState err = client.connect(("ws://" + host + ":" + std::to_string(port)).c_str());
+		
+		if (err != websocket::OPEN)
 			return;
-		}
 
-		client.set_on_message_received([this](const std::vector<uint8_t>& data) 
+		client.set_on_message_received([this](const std::string& message) 
 		{
-			std::string message(data.begin(), data.end());
-			message.erase(std::remove(message.begin(), message.end(), '\0'), message.end());
+			std::string data = message;
+			data.erase(std::remove(data.begin(), data.end(), '\0'), data.end());
+
+			std::cout << "Received message: " << data << std::endl;
+
+			auto pieces = chessEngine.get_board();
+
+			std::cout << "Current board state: ";
+			for (const auto& piece : pieces)
+			{
+				std::cout << piece.piece << " ";
+				if (piece.piece == EMPTY)
+					std::cout << ". ";
+			}
 
 			if (!startGame)
 			{
-				if (message == "BLACK")
+				if (data == "BLACK")
 				{
+					std::cout << "You are playing as black" << std::endl;
+
 					chessEngine = ChessEngine(PL_BLACK, 2000);
 					startGame = true;
+					load_assets(); // DEBUG
 					return;
 				}
-				else if (message == "WHITE")
+				else if (data == "WHITE")
 				{
+					std::cout << "You are playing as black" << std::endl;
+
 					chessEngine = ChessEngine(PL_WHITE, 2000);
 					startGame = true;
+					load_assets(); // DEBUG
 					return;
 				}
-				std::cout << message.size() << std::endl;
+				std::cout << data.size() << std::endl;
 			}
 
 
-			if (message.contains("PROM"))
+			if (data.contains("PROM"))
 			{
-				auto res = process_promotion(message);
+				auto res = process_promotion(data);
 				chessEngine.opponent_promote(res.first, res.second);
 			}
-			else if (message.contains("TO"))
+			else if (data.contains("TO"))
 			{
-				std::pair<int, int> toFrom = process_str_to_pair(message, 3);
+				std::pair<int, int> toFrom = process_str_to_pair(data, 3);
 				chessEngine.opponent_move(toFrom.first, toFrom.second);
 			}
-			else if (message.contains("WALL"))
+			else if (data.contains("WALL"))
 			{
-				std::pair<int, int> toFrom = process_str_to_pair_wall(message);
+				std::pair<int, int> toFrom = process_str_to_pair_wall(data);
 				chessEngine.build_wall_opponent(toFrom.first, toFrom.second);
 			}
-			else if (message.contains("ENPS"))
+			else if (data.contains("ENPS"))
 			{
-				std::pair<int, int> toFrom = process_str_to_pair(message, 5);
+				std::pair<int, int> toFrom = process_str_to_pair(data, 5);
 				chessEngine.add_en_passent_oppertunity(toFrom.first, toFrom.second);
 			}
-			else if (message == "WIN")
+			else if (data == "WIN")
 			{
 
 			}
-			else if (message == "LOSE")
+			else if (data == "LOSE")
 			{
 				isGameOver = true;
 				std::cout << "You Lost!" << std::endl;
@@ -77,18 +93,6 @@ namespace chess
 				std::cout << "Opponent disconnected" << std::endl;
 			}
 		});
-
-		std::string base = "Waiting for Server";
-		std::string dots = base;
-
-		while (!startGame)
-		{
-			std::cout << "\r" << dots << std::flush;
-
-			std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-			dots += ".";
-		}
 
 		SetConfigFlags(FLAG_WINDOW_RESIZABLE);
 
@@ -102,22 +106,10 @@ namespace chess
 
 	void Game::run()
 	{
-
+		instance = this;
 		load_assets();
+		emscripten_set_main_loop_arg(&Game::game_loop_stub, this, 0, 1);
 
-		while (!WindowShouldClose() && !isGameOver)
-		{
-			process_input();
-
-			BeginDrawing();
-			ClearBackground(BLACK);
-
-			render_board();
-
-			EndDrawing();
-
-			chessEngine.check_timeouts();
-		}
 	}
 
 
@@ -202,9 +194,13 @@ namespace chess
 			render_promotion_options();
 
 
+		// ADD A RESIZER FOR SMALLER SCREENS AND ADD COLORING TO PIECES IN COOLDOWN
+
 		// Decide move
 		if (click.state == SECOND_CLICK)
 		{
+			std::cout << "Second click at " << click.pos.second << std::endl;
+
 			if (click.buildWall && chessEngine.build_wall(click.pos.first, click.pos.second) == WL_SUCCESS)
 			{
 				client.send(std::string("WALL ") + std::to_string(chessEngine.reverse(click.pos.first)) + " " + std::to_string(chessEngine.reverse(click.pos.second)));
@@ -251,7 +247,7 @@ namespace chess
 
 			if (chessEngine.did_other_lose())
 			{
-				client.send<std::string>("LOSE");
+				client.send("LOSE");
 
 				std::cout << "You WON!" << std::endl;
 				isGameOver = true;
@@ -265,6 +261,7 @@ namespace chess
 	{
 		Image img = LoadImageFromMemory(".png", chess_pieces_spritesheet_png, chess_pieces_spritesheet_png_len);
 		texInfo.tex = LoadTextureFromImage(img);
+		UnloadImage(img);
 
 		texInfo.width = texInfo.tex.width / 6;
 		texInfo.height = texInfo.tex.height / 2;
@@ -296,7 +293,7 @@ namespace chess
 
 		strs.resize(2);
 
-		return { std::stoi(strs[0]), std::stoi(strs[1]) };
+		return { get_number(strs[0]), get_number(strs[1]) };
 	}
 
 	std::pair<ToFrom, PromotionResult> Game::process_promotion(const std::string& str) const
@@ -324,7 +321,7 @@ namespace chess
 		else if (strs[2] == "Q")
 			res = PR_QUEEN;
 
-		return { { std::stoi(strs[0]), std::stoi(strs[1]) }, res };
+		return { { get_number(strs[0]), get_number(strs[1]) }, res };
 	}
 
 	std::pair<int, int> Game::process_str_to_pair_wall(const std::string& str) const
@@ -338,7 +335,7 @@ namespace chess
 			return { 0, DIR_NONE };
 		strs.resize(2);
 		
-		return { std::stoi(strs[0]), std::stoi(strs[1]) };
+		return { get_number(strs[0]), get_number(strs[1]) };
 
 	}
 
@@ -359,6 +356,34 @@ namespace chess
 		}
 	}
 
+	void Game::game_loop_stub(void* arg)
+	{
+		Game* self = static_cast<Game*>(arg);
+		self->game_loop();
+	}
+
+	void Game::game_loop()
+	{
+
+		if (WindowShouldClose() || isGameOver)
+		{
+			emscripten_cancel_main_loop(); // clean exit
+			return;
+		}
+
+		process_input();
+
+		BeginDrawing();
+		ClearBackground(BLACK);
+
+		render_board();
+
+		EndDrawing();
+
+		chessEngine.check_timeouts();
+	
+	}
+
 	void Game::process_input()
 	{
 		switch (promotion.stateActive)
@@ -371,7 +396,7 @@ namespace chess
 			break;
 		case PS_DECIDED:
 			auto promPoses = chessEngine.get_waiting_for_promotion();
-			client.send<std::string>(std::string("PROM ") + std::to_string(chessEngine.reverse(promPoses.from)) + " " + std::to_string(chessEngine.reverse(promPoses.to)) + " " + to_str(promotion.result));
+			client.send(std::string("PROM ") + std::to_string(chessEngine.reverse(promPoses.from)) + " " + std::to_string(chessEngine.reverse(promPoses.to)) + " " + to_str(promotion.result));
 			chessEngine.promote(promotion.result);
 			promotion.reset();
 		}
@@ -419,6 +444,8 @@ namespace chess
 
 			case FIRST_CLICK:
 				click.pos.second = index;
+
+				std::cout << "First Click: " << click.pos.first << std::endl;
 
 				if (click.pos.first != click.pos.second)
 				{
@@ -486,6 +513,21 @@ namespace chess
 
 	}
 
+	int Game::get_number(const std::string& number) const
+	{
+		int result = 0;
+		for (char c : number)
+		{
+			if (c >= '0' && c <= '9')
+				result = result * 10 + (c - '0');
+			else
+				break; // Stop processing at the first non-digit character
+		}
+
+		return result;
+	}
+
+
 	void Game::render_promotion_options()
 	{
 		PromRects rects = promotion.get_rects();
@@ -508,11 +550,6 @@ namespace chess
 	int Game::get_x_pos(int index) const
 	{
 		return (index % 8) * (screenSize / 8);
-	}
-
-	int Game::get_index(int x, int y) const
-	{
-		return (x % 8) + (y / 8);
 	}
 
 	int Game::get_index_from_mouse_pos() const

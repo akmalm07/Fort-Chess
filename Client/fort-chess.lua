@@ -56,8 +56,6 @@ project "Fort-Chess"
     }
 
     
-    flags { "Verbose" }
-
 
     -- Toolset and compiler settings
     filter "toolset:msc"
@@ -83,6 +81,8 @@ project "Fort-Chess"
     -- Windows system settings
     filter "system:windows"
         systemversion "latest"
+        buildoptions { "/verbose" }
+
         defines "PLATFORM_WINDOWS"
     
     -- Visual Studio specific settings
@@ -92,7 +92,8 @@ project "Fort-Chess"
 
     -- Linux and GCC/Clang settings
     filter "system:linux or toolset:gcc or toolset:clang"
-        buildoptions { "-include pch.h" }
+        buildoptions { "-include pch.h" , "-v" }
+
     
     filter "files:global/headers.cpp"   
         buildoptions { "/Ycheaders.h" }
