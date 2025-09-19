@@ -50,10 +50,10 @@ namespace chess
 
 		const char* title;
 
-		bool isGameOver = false;
+		bool isGameOver = false; 
 		bool windowExists = false;
 
-
+		std::optional<bool> didWin = std::nullopt;
 
 		struct PiecesTexturePos
 		{

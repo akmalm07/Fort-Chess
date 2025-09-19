@@ -131,6 +131,20 @@ namespace chess
 		}
 	}
 
+	bool ChessEngine::is_square_waiting(int square) const
+	{
+		if (timeOutPositions.empty())
+			return false;
+
+		auto it = timeOutPositions.begin();
+		for (; it != timeOutPositions.end(); ++it)
+		{
+			if (it->position == square)
+				return true;
+		}
+		return false;
+	}
+
 
 	Pieces ChessEngine::piece_at(int index) const
 	{
@@ -434,13 +448,7 @@ namespace chess
 			(rc.toCol == rc.fromCol + 1 && can_move_diagonal_wall_check(from, DIR_UP_RIGHT)))
 			&& rc.toRow == rc.fromRow - 1)
 		{
-			if (en_passent_avalible(to))
-			{
-				move_piece_no_check(from, to);
-				boardSetup[row_col_to_index(rc.toRow + 1, rc.toCol)].piece = EMPTY;
-				--piecesLeft;
-			}
-			else if (is_other_player_piece(to))
+			if (is_other_player_piece(to))
 			{
 				move_piece_no_check(from, to);
 				--piecesLeft;
@@ -451,9 +459,14 @@ namespace chess
 					waitingForPromotion = { from, to };
 					return MOVE_PROMOTION_CAPTURE;
 				}
+				return MOVE_CAPTURE;
 			}
-
-			return MOVE_CAPTURE;
+			else if (en_passent_avalible(to))
+			{
+				move_piece_no_check(from, to);
+				boardSetup[row_col_to_index(rc.toRow + 1, rc.toCol)].piece = EMPTY;
+				--piecesLeft;
+			}
 		}
 
 		return MOVE_INVALID;

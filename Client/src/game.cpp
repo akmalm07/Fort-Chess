@@ -2,6 +2,8 @@
 #include "chess_pieces_texture.h"
 #include "game.h"
 
+#define LIGHTBLUE Color(144, 213, 255, 255)
+
 namespace chess
 {
 
@@ -22,17 +24,7 @@ namespace chess
 			std::string data = message;
 			data.erase(std::remove(data.begin(), data.end(), '\0'), data.end());
 
-			std::cout << "Received message: " << data << std::endl;
-
 			auto pieces = chessEngine.get_board();
-
-			std::cout << "Current board state: ";
-			for (const auto& piece : pieces)
-			{
-				std::cout << piece.piece << " ";
-				if (piece.piece == EMPTY)
-					std::cout << ". ";
-			}
 
 			if (!startGame)
 			{
@@ -40,7 +32,7 @@ namespace chess
 				{
 					std::cout << "You are playing as black" << std::endl;
 
-					chessEngine = ChessEngine(PL_BLACK, 2000);
+					chessEngine = ChessEngine(PL_BLACK, 1000);
 					startGame = true;
 					load_assets(); // DEBUG
 					return;
@@ -49,7 +41,7 @@ namespace chess
 				{
 					std::cout << "You are playing as black" << std::endl;
 
-					chessEngine = ChessEngine(PL_WHITE, 2000);
+					chessEngine = ChessEngine(PL_WHITE, 1000);
 					startGame = true;
 					load_assets(); // DEBUG
 					return;
@@ -78,10 +70,6 @@ namespace chess
 				std::pair<int, int> toFrom = process_str_to_pair(data, 5);
 				chessEngine.add_en_passent_oppertunity(toFrom.first, toFrom.second);
 			}
-			else if (data == "WIN")
-			{
-
-			}
 			else if (data == "LOSE")
 			{
 				isGameOver = true;
@@ -107,7 +95,6 @@ namespace chess
 	void Game::run()
 	{
 		instance = this;
-		load_assets();
 		emscripten_set_main_loop_arg(&Game::game_loop_stub, this, 0, 1);
 
 	}
@@ -125,7 +112,9 @@ namespace chess
 			int x = (i % 8) * (cellSize);
 			int y = int(i / 8) * (cellSize);
 
-			if (click.pos.first == i && click.state == FIRST_CLICK)
+			if (chessEngine.is_square_waiting(i))
+				DrawRectangle(x, y, cellSize, cellSize, LIGHTBLUE);
+			else if (click.pos.first == i && click.state == FIRST_CLICK)
 				DrawRectangle(x, y, cellSize, cellSize, RED);
 			else if (click.hoverPos == i && click.state == FIRST_CLICK)
 				DrawRectangle(x, y, cellSize, cellSize, GREEN);
@@ -170,23 +159,39 @@ namespace chess
 			}
 		}
 
+		//Win or lose message
+		if (isGameOver)
+		{
+			DrawRectangle(0, screenSize / 2 - 50, screenSize, 100, BLACK);
+			const char* text = didWin.has_value() && didWin.value() ? "You Won!" : "You Lost!";
+			int fontSize = 40;
+			int textWidth = MeasureText(text, fontSize);
+			int textX = (screenSize - textWidth) / 2;
+			int textY = (screenSize / 2) - (fontSize / 2);
+			DrawText(text, textX, textY, fontSize, WHITE);
+		}
+
 		int squareSize = screenSize / 8;
 		// Draw pieces
 
 		for (int i = 0; i < piecesRects.size(); i++)
 		{
-			for (int j = 0; j < chessEngine.get_board_size(); j++)
+			for (int j = 0; j < 64; j++)
 			{
-				if (chessEngine.piece_at(j) == EMPTY)
+				if (chessEngine.piece_at(j) == EMPTY || piecesRects[i].piece != chessEngine.piece_at(j))
 					continue;
-
-				if (piecesRects[i].piece == chessEngine.piece_at(j))
-				{
-					int x = (j % 8) * squareSize;
-					int y = (j / 8) * squareSize;
-					Vector2 pos = { (float)x, (float)y };
-					DrawTextureRec(texInfo.tex, piecesRects[i].rect, pos, WHITE);
-				}
+	
+				int x = (j % 8) * squareSize;
+				int y = (j / 8) * squareSize;
+				Rectangle dest = {
+					(float)x,                   
+					(float)y,                   
+					(float)squareSize,          
+					(float)squareSize           
+				};
+				//Vector2 pos = { (float)x, (float)y };
+				DrawTexturePro(texInfo.tex, piecesRects[i].rect, dest, { 0, 0 }, 0.0f, WHITE);
+				
 			}
 		}
 
@@ -250,6 +255,7 @@ namespace chess
 				client.send("LOSE");
 
 				std::cout << "You WON!" << std::endl;
+				didWin = true;
 				isGameOver = true;
 			}
 		}
@@ -365,7 +371,7 @@ namespace chess
 	void Game::game_loop()
 	{
 
-		if (WindowShouldClose() || isGameOver)
+		if (WindowShouldClose())
 		{
 			emscripten_cancel_main_loop(); // clean exit
 			return;
@@ -459,6 +465,10 @@ namespace chess
 				click.reset();
 				break;
 			}
+		}
+		else if (click.state == SECOND_CLICK && !chessEngine.valid_piece(click.pos.first))
+		{
+			click.reset();
 		}
 		else if (IsKeyPressed(KEY_B))
 		{

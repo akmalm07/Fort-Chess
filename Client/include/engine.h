@@ -155,6 +155,8 @@ namespace chess
 
 		void check_timeouts();
 
+		bool is_square_waiting(int square) const;
+
 		Pieces piece_at(int index) const;
 
 		int piece_count() const;
