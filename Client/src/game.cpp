@@ -13,67 +13,66 @@ namespace chess
 		: isGameOver(false), minSize(minSize), screenSize(screenSize), title(title)
 	{		
 		SetTraceLogLevel(LOG_ERROR);
+		std::string url = host;
+		if (port != 0)
+			url += ":" + std::to_string(port);
 
-		websocket::WebSocketState err = client.connect(("ws://" + host + ":" + std::to_string(port)).c_str());
-		
+		websocket::WebSocketState err = client.connect(url.c_str());
 		if (err != websocket::OPEN)
 			return;
 
-		client.set_on_message_received([this](const std::string& message) 
+		client.set_on_on_message_recived_bytes([this](const std::vector<uint8_t>& data) 
 		{
-			std::string data = message;
-			data.erase(std::remove(data.begin(), data.end(), '\0'), data.end());
-
-			auto pieces = chessEngine.get_board();
-
-			if (!startGame)
+			if (!startGame && data[0] == SDT_SET_COLOR)
 			{
-				if (data == "BLACK")
-				{
-					std::cout << "You are playing as black" << std::endl;
-
+				if ((Player)data.back() == PL_BLACK)
 					chessEngine = ChessEngine(PL_BLACK, 1000);
-					startGame = true;
-					load_assets(); // DEBUG
-					return;
-				}
-				else if (data == "WHITE")
-				{
-					std::cout << "You are playing as black" << std::endl;
-
+				else if ((Player)data.back() == PL_WHITE)
 					chessEngine = ChessEngine(PL_WHITE, 1000);
-					startGame = true;
-					load_assets(); // DEBUG
-					return;
-				}
-				std::cout << data.size() << std::endl;
+			
+				startGame = true;
+				load_assets(); 
+				return;
+				//std::cout << data.size() << std::endl;
 			}
 
 
-			if (data.contains("PROM"))
+			if (data[0] == SDT_PROMOTE)
 			{
 				auto res = process_promotion(data);
-				chessEngine.opponent_promote(res.first, res.second);
+				chessEngine.promote_generic(res.first.from, res.first.to, res.second, (Player)data.back());
 			}
-			else if (data.contains("TO"))
+			else if (data[0] == SDT_PROMOTE_DECIDING)
+				chessEngine.set_waiting_for_promotion(data[1], data[2], (Player)data.back());
+			else if (data[0] == SDT_KILL_DECISTION)
 			{
-				std::pair<int, int> toFrom = process_str_to_pair(data, 3);
-				chessEngine.opponent_move(toFrom.first, toFrom.second);
+				chessEngine.move_generic(data[1], data[2], (Player)data.back());
+				if (chessEngine.promotion_desision_exists())
+				{
+					promotion.reset();
+					click.reset();
+				}
 			}
-			else if (data.contains("WALL"))
+			else if (data[0] == SDT_MOVE)
+				chessEngine.move_generic(data[1], data[2], (Player)data.back());
+			else if (data[0] == SDT_WALL)
+				chessEngine.build_wall_generic(data[1], data[2], (Player)data.back());
+			else if (data[0] == SDT_ENPS)
 			{
-				std::pair<int, int> toFrom = process_str_to_pair_wall(data);
-				chessEngine.build_wall_opponent(toFrom.first, toFrom.second);
-			}
-			else if (data.contains("ENPS"))
-			{
-				std::pair<int, int> toFrom = process_str_to_pair(data, 5);
-				chessEngine.add_en_passent_oppertunity(toFrom.first, toFrom.second);
-			}
-			else if (data == "LOSE")
+				chessEngine.add_en_passent_oppertunity(data[1], data[2], (Player)data.back());
+				chessEngine.move_generic(data[3], data[4], (Player)data.back());
+			}	
+			else if (data[0] == SDT_LOSE)
 			{
 				isGameOver = true;
+				didWin = false;
 				std::cout << "You Lost!" << std::endl;
+			}
+			else if (data[0] == SDT_WIN)
+			{
+				isGameOver = true;
+				didWin = true;
+				std::cout << "You Won!" << std::endl;
 			}
 			else
 			{
@@ -81,6 +80,8 @@ namespace chess
 				std::cout << "Opponent disconnected" << std::endl;
 			}
 		});
+
+
 
 		SetConfigFlags(FLAG_WINDOW_RESIZABLE);
 
@@ -96,7 +97,6 @@ namespace chess
 	{
 		instance = this;
 		emscripten_set_main_loop_arg(&Game::game_loop_stub, this, 0, 1);
-
 	}
 
 
@@ -189,7 +189,6 @@ namespace chess
 					(float)squareSize,          
 					(float)squareSize           
 				};
-				//Vector2 pos = { (float)x, (float)y };
 				DrawTexturePro(texInfo.tex, piecesRects[i].rect, dest, { 0, 0 }, 0.0f, WHITE);
 				
 			}
@@ -200,65 +199,6 @@ namespace chess
 
 
 		// ADD A RESIZER FOR SMALLER SCREENS AND ADD COLORING TO PIECES IN COOLDOWN
-
-		// Decide move
-		if (click.state == SECOND_CLICK)
-		{
-			std::cout << "Second click at " << click.pos.second << std::endl;
-
-			if (click.buildWall && chessEngine.build_wall(click.pos.first, click.pos.second) == WL_SUCCESS)
-			{
-				client.send(std::string("WALL ") + std::to_string(chessEngine.reverse(click.pos.first)) + " " + std::to_string(chessEngine.reverse(click.pos.second)));
-				click.reset();
-			}
-			else
-			{
-				switch (chessEngine.move_piece(click.pos.first, click.pos.second))
-				{
-				case MOVE_EN_PASSENT_OPPORTUNITY:
-				{
-					client.send(std::string("ENPS ") + std::to_string(chessEngine.reverse(chessEngine.get_under_position_of(click.pos.second))) + " " + std::to_string(chessEngine.get_game_moves_count()));
-					client.send(std::string("TO ") + std::to_string(chessEngine.reverse(click.pos.first)) + " " + std::to_string(chessEngine.reverse(click.pos.second)));
-					click.reset();
-					break;
-				}
-				case MOVE_PROMOTION:
-				case MOVE_PROMOTION_CAPTURE:
-				{
-					promotion.stateActive = PS_DECIDING;
-					click.reset();
-					break;
-				}
-
-				case MOVE_SUCCESS:
-				case MOVE_CAPTURE:
-				{
-					client.send(std::string("TO ") + std::to_string(chessEngine.reverse(click.pos.first)) + " " + std::to_string(chessEngine.reverse(click.pos.second)));
-
-					click.reset();
-					break;
-				}
-
-				case MOVE_INVALID:
-				{
-					click.state = FIRST_CLICK;
-					break;
-				}
-
-				default:
-					click.state = FIRST_CLICK;
-				}
-			}
-
-			if (chessEngine.did_other_lose())
-			{
-				client.send("LOSE");
-
-				std::cout << "You WON!" << std::endl;
-				didWin = true;
-				isGameOver = true;
-			}
-		}
 
 
 	}
@@ -285,49 +225,13 @@ namespace chess
 
 	}
 
-	std::pair<int, int> Game::process_str_to_pair(const std::string& str, unsigned int offset) const
+	std::pair<ToFrom, PromotionResult> Game::process_promotion(const std::vector<uint8_t>& data) const
 	{
-		std::istringstream iss(str.substr(offset));
-		std::string s;
-		std::vector<std::string> strs;
-
-		while (getline(iss, s, ' '))
-			strs.push_back(s);
-
-		if (strs.size() < 2)
-			return { 0, 0 };
-
-		strs.resize(2);
-
-		return { get_number(strs[0]), get_number(strs[1]) };
-	}
-
-	std::pair<ToFrom, PromotionResult> Game::process_promotion(const std::string& str) const
-	{
-		std::istringstream iss(str.substr(5));
-		std::string s;
-		std::vector<std::string> strs;
-
-		while (getline(iss, s, ' '))
-			strs.push_back(s);
-
-		if (strs.size() < 3)
-			return { {0, 0}, PR_NONE };
-
-		strs.resize(3);
-
-		PromotionResult res = PR_NONE;
-
-		if (strs[2] == "K")
-			res = PR_KNIGHT;
-		else if (strs[2] == "B")
-			res = PR_BISHOP;
-		else if (strs[2] == "R")
-			res = PR_ROOK;
-		else if (strs[2] == "Q")
-			res = PR_QUEEN;
-
-		return { { get_number(strs[0]), get_number(strs[1]) }, res };
+		if (data.size() < 4)
+			return { { -1, -1 }, PR_NONE };
+		ToFrom tf = { data[1], data[2] };
+		PromotionResult res = static_cast<PromotionResult>(data[3]);
+		return { tf, res };
 	}
 
 	std::pair<int, int> Game::process_str_to_pair_wall(const std::string& str) const
@@ -402,7 +306,14 @@ namespace chess
 			break;
 		case PS_DECIDED:
 			auto promPoses = chessEngine.get_waiting_for_promotion();
-			client.send(std::string("PROM ") + std::to_string(chessEngine.reverse(promPoses.from)) + " " + std::to_string(chessEngine.reverse(promPoses.to)) + " " + to_str(promotion.result));
+			std::vector<uint8_t> data;
+			data.push_back((uint8_t)SDT_PROMOTE);
+			data.push_back((uint8_t)promPoses.from);
+			data.push_back((uint8_t)promPoses.to);
+			data.push_back((uint8_t)promotion.result);
+			data.push_back((uint8_t)player);
+
+			client.send(data);
 			chessEngine.promote(promotion.result);
 			promotion.reset();
 		}
@@ -451,42 +362,143 @@ namespace chess
 			case FIRST_CLICK:
 				click.pos.second = index;
 
-				std::cout << "First Click: " << click.pos.first << std::endl;
-
-				if (click.pos.first != click.pos.second)
+				if (click.pos.first == click.pos.second)
 				{
+					if (!click.third)
+					{
+						// Wall mode: require a second square
+						click.buildWall = true;
+						click.third = true;
+					}
+					else
+					{
+						click.reset();
+					}
+				}
+				
+				else
+				{
+					// Normal move path
 					click.state = SECOND_CLICK;
-					//boardSetup[click.pos.second] = boardSetup[click.pos.first];
-					//boardSetup[click.pos.first] = EMPTY;
+					handle_second_click();	
 				}
 				break;
+
+			case SECOND_CLICK:
+			{
+				handle_second_click();
+				break;
+			}
 
 			default:
 				click.reset();
 				break;
 			}
 		}
-		else if (click.state == SECOND_CLICK && !chessEngine.valid_piece(click.pos.first))
+		else if (click.state == FIRST_CLICK)
 		{
-			click.reset();
-		}
-		else if (IsKeyPressed(KEY_B))
-		{
-			if (click.state == FIRST_CLICK)
-			{
-				click.buildWall = true;
-			}
-		}
-
-
-		if (click.state == FIRST_CLICK)
-		{
+			// Hover logic
 			click.hoverPos = get_index_from_mouse_pos();
 
 			if (IsKeyPressed(KEY_BACKSPACE))
 			{
 				click.reset();
 			}
+			else if (IsKeyPressed(KEY_B))
+			{
+				// Enter wall mode from keyboard shortcut
+				click.buildWall = true;
+				click.state = SECOND_CLICK;
+			}
+		}
+	}
+
+	void Game::handle_second_click()
+	{
+		// If wall building is active
+		if (!chessEngine.valid_piece(click.pos.first))
+		{
+			click.reset();
+			return;
+		}
+
+		std::vector<uint8_t> data;
+		data.reserve(3);
+
+		if (click.buildWall)
+		{
+			if (chessEngine.build_wall(click.pos.first, click.pos.second) == WL_SUCCESS)
+			{
+				data.push_back((uint8_t)SDT_WALL);
+				data.push_back((uint8_t)click.pos.first);
+				data.push_back((uint8_t)click.pos.second);
+				data.push_back((uint8_t)player);
+				client.send(data);
+			}
+			click.reset();
+			return;
+		}
+
+		// --- Handle normal move ---
+
+		switch (chessEngine.move_piece(click.pos.first, click.pos.second))
+		{
+		case MOVE_EN_PASSENT_OPPORTUNITY:
+			data.push_back((uint8_t)SDT_ENPS);
+			data.push_back((uint8_t)chessEngine.get_under_position_of(click.pos.second));
+			data.push_back((uint8_t)chessEngine.get_game_moves_count());
+			data.push_back((uint8_t)click.pos.first);
+			data.push_back((uint8_t)click.pos.second);
+
+			data.push_back(player);
+
+			client.send(data);
+			click.reset();
+			break;
+
+		case MOVE_PROMOTION:
+		case MOVE_PROMOTION_CAPTURE:
+			promotion.stateActive = PS_DECIDING;
+
+			data.push_back((uint8_t)SDT_PROMOTE_DECIDING);
+			data.push_back((uint8_t)click.pos.first);
+			data.push_back((uint8_t)click.pos.second);
+			
+			client.send(data);
+
+			click.reset();
+			break;
+
+		case MOVE_KILL_DECISTION:
+
+			data.push_back((uint8_t)SDT_KILL_DECISTION);
+			data.push_back((uint8_t)click.pos.first);
+			data.push_back((uint8_t)click.pos.second);
+			data.push_back((uint8_t)player);
+			click.reset();
+			break;
+
+		case MOVE_SUCCESS:
+		case MOVE_CAPTURE:
+
+			data.push_back((uint8_t)SDT_MOVE);
+			data.push_back((uint8_t)click.pos.first);
+			data.push_back((uint8_t)click.pos.second);
+			client.send(data);
+			click.reset();
+			break;
+
+		case MOVE_INVALID:
+		default:
+			click.state = FIRST_CLICK;
+			break;
+		}
+
+		// --- Check for game end ---
+		if (chessEngine.did_other_lose())
+		{
+			data.push_back(uint8_t(SDT_LOSE));
+			data.push_back(uint8_t(player));
 		}
 	}
 

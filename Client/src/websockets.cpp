@@ -8,7 +8,7 @@ namespace websocket
         connect(url);
     }
 
-    WebSocketState websocket::WebSocketClient::connect(const char* url)
+    WebSocketState WebSocketClient::connect(const char* url)
     {
         if (!emscripten_websocket_is_supported())
         {
@@ -30,6 +30,8 @@ namespace websocket
             websocket = 0;
             return FAILED;
         }
+ 
+        //emscripten_websocket_set_binary_type(websocket, EMSCRIPTEN_WEBSOCKET_BINARY_TYPE_ARRAYBUFFER);
 
         emscripten_websocket_set_onopen_callback(websocket, this, on_open);
         emscripten_websocket_set_onmessage_callback(websocket, this, on_message);
@@ -48,12 +50,25 @@ namespace websocket
 		}
     }
 
-    void websocket::WebSocketClient::set_on_message_received(std::function<void(const std::string&)> func)
+    void WebSocketClient::send(const std::vector<uint8_t>& data)
     {
-        onMessageRecieved = std::move(func);
+        if (websocket)
+        {
+            emscripten_websocket_send_binary(websocket, (void*)data.data(), data.size());
+        }
     }
 
-    websocket::WebSocketClient::~WebSocketClient()
+    void WebSocketClient::set_on_message_received_str(std::function<void(const std::string&)> func)
+    {
+        onMessageRecievedStr = std::move(func);
+    }
+
+    void WebSocketClient::set_on_on_message_recived_bytes(std::function<void(std::vector<uint8_t>)> func)
+    {
+		onMessageRecievedByte = std::move(func);
+    }
+
+    WebSocketClient::~WebSocketClient()
     {
         if (websocket)
         {
@@ -71,20 +86,24 @@ namespace websocket
 
     EM_BOOL WebSocketClient::on_message(int eventType, const EmscriptenWebSocketMessageEvent* e, void* userData)
     {
+        auto* self = static_cast<WebSocketClient*>(userData);
         if (e->isText)
         {
-            auto* self = static_cast<WebSocketClient*>(userData);
-            self->onMessageRecieved(std::string(reinterpret_cast<const char*>(e->data), e->numBytes));
+			printf("Received text message of %d bytes: %s\n", e->numBytes, reinterpret_cast<const char*>(e->data));
+			if (self->onMessageRecievedStr)
+                self->onMessageRecievedStr(std::string(reinterpret_cast<const char*>(e->data), e->numBytes));
         }
         else
         {
             printf("Received binary message of %d bytes:\n", e->numBytes);
-            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(e->data);
-            for (int i = 0; i < e->numBytes; i++)
+            if (self->onMessageRecievedByte)
             {
-                printf("%02X ", bytes[i]);
+                std::vector<uint8_t> bytes(
+                    reinterpret_cast<const uint8_t*>(e->data),
+                    reinterpret_cast<const uint8_t*>(e->data) + e->numBytes
+                );
+                self->onMessageRecievedByte(bytes);
             }
-            printf("\n");
         }
         return EM_TRUE;
     }

@@ -15,7 +15,19 @@ struct Rectangle;
 namespace chess
 {
 
+	enum SentDataType
+	{
+		SDT_SET_COLOR = 0,
+		SDT_MOVE,
+		SDT_PROMOTE,
+		SDT_PROMOTE_DECIDING,
+		SDT_WALL,
+		SDT_ENPS,
+		SDT_LOSE,
+		SDT_WIN,
 
+		SDT_KILL_DECISTION
+	};;
 
 	enum ClickState
 	{
@@ -34,7 +46,7 @@ namespace chess
 	class Game
 	{
 	public:
-		Game(int screenSize, int minSize, const char* title, const std::string& host, unsigned short port);
+		Game(int screenSize, int minSize, const char* title, const std::string& host, unsigned short port = 0);
 
 		void run();
 
@@ -107,12 +119,15 @@ namespace chess
 			int hoverPos = -1;
 			bool buildWall = false;
 
+			bool third = false;
+
 			void reset()
 			{
 				state = NO_CLICK;
 				pos.first = -1;
 				pos.second = -1;
 				buildWall = false;
+				third = false;
 				hoverPos = -1;
 			}
 		} click;
@@ -142,12 +157,14 @@ namespace chess
 
 		int get_number(const std::string& number) const;
 
-		std::pair<int, int> process_str_to_pair(const std::string& str, unsigned int offset) const;
-		std::pair<ToFrom, PromotionResult> process_promotion(const std::string& str) const;
+		std::pair<int, int> process_str_to_pair(const std::vector<uint8_t>& data, unsigned int offset) const;
+		std::pair<ToFrom, PromotionResult> process_promotion(const std::vector<uint8_t>& data) const;
 		std::pair<int, int> process_str_to_pair_wall(const std::string& str) const;
 		// Handles
 		void handle_resize();
 		void handle_clicks();
+
+		void handle_second_click();
 
 		void render_promotion_options();
 

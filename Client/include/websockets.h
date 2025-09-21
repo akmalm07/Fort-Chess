@@ -31,12 +31,17 @@ namespace websocket
 
 		void send(const std::string& message);
 
-		void set_on_message_received(std::function<void(const std::string&)> func);
+		void send(const std::vector<uint8_t>& data);
+
+		void set_on_message_received_str(std::function<void(const std::string&)> func);
+
+		void set_on_on_message_recived_bytes(std::function<void(std::vector<uint8_t>)> func);
 
 		~WebSocketClient();
 
 	private:
-		std::function<void(const std::string&)> onMessageRecieved;
+		std::function<void(const std::string&)> onMessageRecievedStr;
+		std::function<void(const std::vector<uint8_t>&)> onMessageRecievedByte;
 		EMSCRIPTEN_WEBSOCKET_T websocket;
 
 	private:

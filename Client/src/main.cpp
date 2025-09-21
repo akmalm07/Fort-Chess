@@ -38,7 +38,7 @@ int main()
 
 	// Create game instance
 
-	chess::Game game(1000, 400, "Chess Game", "localhost", 8080);
+	chess::Game game(1000, 400, "Chess Game", "wss://fort-chess-host-402203537997.us-east4.run.app");
 
     // Browser main loop
 

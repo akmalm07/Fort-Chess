@@ -26,15 +26,33 @@ namespace chess
 		reset_board();
 	}
 
-	void ChessEngine::opponent_move(int from, int to)
+	void ChessEngine::move_generic(int from, int to, Player player)
 	{
+		if (player != this->player)
+		{
+			from = reverse(from);
+			to = reverse(to);
+		}
+
+		if (piece_exists(to))
+		{
+			piecesLeft--;
+			if (piece_at(to) == (player == PL_WHITE ? W_KING : B_KING))
+				didOtherLose = false;
+		}
+
 		move_piece_no_check(from, to);
+	}
+
+	void ChessEngine::set_waiting_for_promotion(int from, int to, Player col)
+	{
+		waitingForPromotion = { from, to, col }; // Potential problem if both players promote at the same time. Patch later
 	}
 
 
 	void ChessEngine::reset_board()
 	{
-		piecesLeft = 12;
+		piecesLeft = 32;
 		
 
 		std::array<Pieces, 64> initial = {
@@ -90,32 +108,39 @@ namespace chess
 		}
 	}
 
-	void ChessEngine::add_en_passent_oppertunity(int underPosition, int whenImplemented)
+	void ChessEngine::add_en_passent_oppertunity(int underPosition, int whenImplemented, Player player)
 	{
-		enPassantOppertunities.push_back({ underPosition, whenImplemented });
+		if (player != this->player)
+			enPassantOppertunities.push_back({ underPosition, whenImplemented });
 	}
 
-	void ChessEngine::opponent_promote(ToFrom toFrom, PromotionResult res)
+	void ChessEngine::promote_generic(int from, int to, PromotionResult res, Player player)
 	{
 		if (res == PR_NONE)
 			return;
+
+		if (player != this->player)
+		{
+			from = reverse(from);
+			to = reverse(to);
+		}
+
 		
-		boardSetup[toFrom.from].piece = EMPTY;
+		boardSetup[from].piece = EMPTY;
 		switch (res)
 		{
 		case PR_QUEEN:
-			boardSetup[toFrom.to].piece = (player == PL_WHITE ? B_QUEEN : W_QUEEN);
+			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_QUEEN : B_QUEEN) : (this->player == player ? B_QUEEN : W_QUEEN));
 			break;
 		case PR_ROOK:
-			boardSetup[toFrom.to].piece = (player == PL_WHITE ? B_ROOK : W_ROOK);
+			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_ROOK : B_ROOK) : (this->player == player ? B_ROOK : W_ROOK));
 			break;
 		case PR_BISHOP:
-			boardSetup[toFrom.to].piece = (player == PL_WHITE ? B_BISHOP : W_BISHOP);
+			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_BISHOP : B_BISHOP) : (this->player == player ? B_BISHOP : W_BISHOP));
 			break;
 		case PR_KNIGHT:
-			boardSetup[toFrom.to].piece = (player == PL_WHITE ? B_KNIGHT : W_KNIGHT);
+			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_KNIGHT : B_KNIGHT) : (this->player == player ? B_KNIGHT : W_KNIGHT));
 			break;
-
 		}
 	}
 
@@ -149,6 +174,11 @@ namespace chess
 	Pieces ChessEngine::piece_at(int index) const
 	{
 		return boardSetup[index].piece;
+	}
+
+	bool ChessEngine::promotion_desision_exists() const
+	{
+		return waitingForPromotion.to != -1;
 	}
 
 	int ChessEngine::piece_count() const
@@ -228,7 +258,7 @@ namespace chess
 
 	WallState ChessEngine::build_wall(int place, int direction)
 	{
-		if (boardSetup[place].piece != (player == PL_WHITE ? W_PAWN : B_PAWN) || place == direction)
+		if (boardSetup[place].piece != (player == PL_WHITE ? W_PAWN : B_PAWN) || place == direction || is_in_timeout(place))
 			return WL_INVALID;
 
 		RowCol rc = get_row_col(place, direction);
@@ -258,20 +288,20 @@ namespace chess
 			return WL_WALL_EXISTS;
 
 		if (auto& wall = boardSetup[place].walls[(int)dir - 1])
-		{
-			//SHould I allow walls to be counted as moves?
-			//++gameMovesCount;
-			wall->get() = true;
-			add_timeout(place);
-		}
+			return WL_SUCCESS;
 		else
 			return WL_INVALID;
 
-		return WL_SUCCESS;
 	}
 
-	void ChessEngine::build_wall_opponent(int place, int direction)
+	void ChessEngine::build_wall_generic(int place, int direction, Player player)
 	{
+		if (player != this->player)
+		{
+			place = reverse(place);
+			direction = reverse(direction);
+		}
+
 		RowCol rc = get_row_col(place, direction);
 
 		Direction dir = DIR_NONE;
@@ -321,8 +351,7 @@ namespace chess
 
 	bool ChessEngine::valid_piece(int index) const
 	{
-		return piece_exists(index) &&
-			(player == PL_WHITE
+		return (player == PL_WHITE
 				? (W_KING <= boardSetup[index].piece && boardSetup[index].piece <= W_PAWN)
 				: (B_KING <= boardSetup[index].piece && boardSetup[index].piece <= B_PAWN));
 	}
@@ -353,7 +382,7 @@ namespace chess
 
 	ToFrom ChessEngine::get_waiting_for_promotion() const
 	{
-		return waitingForPromotion; 
+		return { .from = waitingForPromotion.from, .to = waitingForPromotion.to };
 	}
 
 	int ChessEngine::reverse(int pos)
@@ -396,6 +425,13 @@ namespace chess
 			: (W_KING <= boardSetup[index].piece && boardSetup[index].piece <= W_PAWN);
 	}
 
+	bool ChessEngine::is_friendly_piece(int index) const
+	{
+		return player == PL_WHITE
+			? (W_KING <= boardSetup[index].piece && boardSetup[index].piece <= W_PAWN)
+			: (B_KING <= boardSetup[index].piece && boardSetup[index].piece <= B_PAWN);
+	}
+
 	//  0   1   2   3   4   5   6   7 
 	//  8   9   10  11  12  13  14  15 
 	//  16  17  18  19  20  21  22  23 
@@ -424,7 +460,6 @@ namespace chess
 			if (rc.toCol == rc.fromCol && rc.toRow == rc.fromRow - 1 && boardSetup[to].piece == EMPTY)
 			{
 				// Promotion without capture
-				move_piece_no_check(from, to);
 				if (rc.toRow == 0)
 				{
 					waitingForPromotion = { from, to };
@@ -437,10 +472,8 @@ namespace chess
 			// Double move from starting position
 			if (rc.toCol == rc.fromCol && rc.fromRow == 6 /* 6 is the start row */ && rc.toRow == rc.fromRow - 2 &&
 				boardSetup[row_col_to_index(rc.toRow + 1, rc.toCol)].piece == EMPTY && boardSetup[to].piece == EMPTY)
-			{
-				move_piece_no_check(from, to);
 				return MOVE_EN_PASSENT_OPPORTUNITY;
-			}
+			
 		}
 
 		// Capture move
@@ -450,7 +483,6 @@ namespace chess
 		{
 			if (is_other_player_piece(to))
 			{
-				move_piece_no_check(from, to);
 				--piecesLeft;
 
 				// Promotion with capture
@@ -463,7 +495,6 @@ namespace chess
 			}
 			else if (en_passent_avalible(to))
 			{
-				move_piece_no_check(from, to);
 				boardSetup[row_col_to_index(rc.toRow + 1, rc.toCol)].piece = EMPTY;
 				--piecesLeft;
 			}
@@ -496,13 +527,13 @@ namespace chess
 					{
 						if (is_other_player_piece(current))
 						{
-							move_piece_no_check(from, to);
+							
 							--piecesLeft;
 							return MOVE_CAPTURE;
 						}
 						else if (boardSetup[current].piece == EMPTY)
 						{
-							move_piece_no_check(from, to);
+							
 							return MOVE_SUCCESS;
 						}
 						else
@@ -547,13 +578,13 @@ namespace chess
 		{
 			if (is_other_player_piece(to))
 			{
-				move_piece_no_check(from, to);
+				
 				--piecesLeft;
 				return MOVE_CAPTURE;
 			}
 			else if (boardSetup[to].piece == EMPTY)
 			{
-				move_piece_no_check(from, to);
+				
 				return MOVE_SUCCESS;
 			}
 		}
@@ -585,13 +616,13 @@ namespace chess
 			kingMoved = true;
 			if (is_other_player_piece(to))
 			{
-				move_piece_no_check(from, to);
+				
 				--piecesLeft;
 				return MOVE_CAPTURE;
 			}
 			else if (boardSetup[to].piece == EMPTY)
 			{
-				move_piece_no_check(from, to);
+				
 				return MOVE_SUCCESS;
 			}
 		}
@@ -712,14 +743,14 @@ namespace chess
 					{
 						if (is_other_player_piece(current))
 						{
-							move_piece_no_check(from, to);
+							
 							--piecesLeft;
 
 							return MOVE_CAPTURE;
 						}
 						else if (boardSetup[current].piece == EMPTY)
 						{
-							move_piece_no_check(from, to);
+							
 							return MOVE_SUCCESS;
 						}
 						else
@@ -820,7 +851,8 @@ namespace chess
 
 		++gameMovesCount;
 		
-		add_timeout(to);
+		if (is_friendly_piece(to))
+			add_timeout(to);
 	}
 
 	void ChessEngine::add_timeout(int position)

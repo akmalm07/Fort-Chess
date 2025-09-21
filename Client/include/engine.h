@@ -43,37 +43,6 @@ namespace chess
 		BoardData(Pieces piece, std::array<std::optional<std::reference_wrapper<bool>>, 4> walls) : piece(piece), walls(walls) {};
 	};
 
-	struct TotalPiecesCallback
-	{
-	private:
-		unsigned int piecesLeft = 12;
-		std::function<void()> onCapture;
-
-	public:
-		TotalPiecesCallback() = default;
-		TotalPiecesCallback(unsigned int piecesLeft, std::function<void()> func = nullptr)
-			: piecesLeft(piecesLeft), onCapture(std::move(func)) {}
-		
-		void set_on_capture(std::function<void()>&& func)
-		{
-			onCapture = std::move(func);
-		}
-
-		operator unsigned int() const
-		{
-			return piecesLeft;
-		}
-
-		void operator++() = delete;
-
-		void operator--()
-		{
-			piecesLeft--;
-			if (onCapture)
-				onCapture();
-		}
-	};
-
 	enum Player
 	{
 		PL_WHITE = 0,
@@ -88,6 +57,8 @@ namespace chess
 		MOVE_PROMOTION,
 		MOVE_PROMOTION_CAPTURE,
 		MOVE_EN_PASSENT_OPPORTUNITY,
+
+		MOVE_KILL_DECISTION
 	};
 
 	enum WallState
@@ -125,7 +96,7 @@ namespace chess
 		PR_KNIGHT
 	};
 
-	struct ToFrom 	
+	struct ToFrom
 	{
 		int from;
 		int to;
@@ -145,19 +116,23 @@ namespace chess
 		ChessEngine(ChessEngine&&) noexcept = default;           
 		ChessEngine& operator=(ChessEngine&&) noexcept = default;
 
-		void opponent_move(int from, int to);
+		void move_generic(int from, int to, Player player);
+
+		void set_waiting_for_promotion(int from, int to, Player col);
 
 		void reset_board();
 
-		void add_en_passent_oppertunity(int underPosition, int whenImplemented);
+		void add_en_passent_oppertunity(int underPosition, int whenImplemented, Player player);
 
-		void opponent_promote(ToFrom toFrom, PromotionResult res);
+		void promote_generic(int from, int to, PromotionResult res, Player player);
 
 		void check_timeouts();
 
 		bool is_square_waiting(int square) const;
 
 		Pieces piece_at(int index) const;
+
+		bool promotion_desision_exists() const;
 
 		int piece_count() const;
 
@@ -173,7 +148,7 @@ namespace chess
 
 		WallState build_wall(int place, int direction);
 		
-		void build_wall_opponent(int place, int direction);
+		void build_wall_generic(int place, int direction, Player player);
 
 		bool piece_exists(int index) const;
 
@@ -206,7 +181,12 @@ namespace chess
 
 		std::array<bool, 112> chessBorders = { false };
 
-		ToFrom waitingForPromotion = { -1, -1 };
+		struct
+		{
+			int from;
+			int to;
+			Player col;
+		} waitingForPromotion = { -1, -1 };
 
 		std::array<BoardData, 64> boardSetup;
 
@@ -232,6 +212,8 @@ namespace chess
 		RowCol get_row_col(int from, int to) const;
 
 		bool is_other_player_piece(int index) const;
+
+		bool is_friendly_piece(int index) const;
 
 		MoveState handle_pawn_move(int from, int to);
 		MoveState handle_rook_move(int from, int to);
@@ -261,3 +243,40 @@ namespace chess
 	};
 
 }
+
+
+
+//Unused:
+/*
+struct TotalPiecesCallback
+{
+private:
+	unsigned int piecesLeft = 12;
+	std::function<void()> onCapture;
+
+public:
+	TotalPiecesCallback() = default;
+	TotalPiecesCallback(unsigned int piecesLeft, std::function<void()> func = nullptr)
+		: piecesLeft(piecesLeft), onCapture(std::move(func)) {
+	}
+
+	void set_on_capture(std::function<void()>&& func)
+	{
+		onCapture = std::move(func);
+	}
+
+	operator unsigned int() const
+	{
+		return piecesLeft;
+	}
+
+	void operator++() = delete;
+
+	void operator--()
+	{
+		piecesLeft--;
+		if (onCapture)
+			onCapture();
+	}
+};
+*/
