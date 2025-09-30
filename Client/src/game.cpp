@@ -10,7 +10,7 @@ namespace chess
 	Game* Game::instance = nullptr;
 
 	Game::Game(int screenSize, int minSize, const char* title, const std::string& host, unsigned short port)
-		: isGameOver(false), minSize(minSize), screenSize(screenSize), title(title)
+		: overState(false, false), minSize(minSize), screenSize(screenSize), title(title)
 	{		
 		SetTraceLogLevel(LOG_ERROR);
 		std::string url = host;
@@ -21,21 +21,41 @@ namespace chess
 		if (err != websocket::OPEN)
 			return;
 
-		client.set_on_on_message_recived_bytes([this](const std::vector<uint8_t>& data) 
+		client.set_on_message_received_str([this](const std::string& message) 
 		{
+			std::cout << "Received message: " << message << std::endl;
+		});
+
+		client.set_on_message_recived_bytes([this](const std::vector<uint8_t>& data) 
+		{
+				std::function<void()> endGameFunc = [this]() 
+				{
+					std::vector<uint8_t> sendData;
+					sendData.push_back((uint8_t)SDT_LOSE);
+					sendData.push_back((uint8_t)chessEngine.get_oppisiate_player());
+					client.send(sendData);
+				};
+
 			if (!startGame && data[0] == SDT_SET_COLOR)
 			{
 				if ((Player)data.back() == PL_BLACK)
-					chessEngine = ChessEngine(PL_BLACK, 1000);
+					chessEngine = ChessEngine(PL_BLACK, 3000);
 				else if ((Player)data.back() == PL_WHITE)
-					chessEngine = ChessEngine(PL_WHITE, 1000);
+					chessEngine = ChessEngine(PL_WHITE, 3000);
 			
 				startGame = true;
 				load_assets(); 
 				return;
-				//std::cout << data.size() << std::endl;
 			}
 
+			/*
+			* 
+			* What does not work TODO:
+			*  - Killing a promotion desision. (Fixing, must test)
+			*  - EnPassent oppertunity. (Fixing, must test)
+			*  - End game recongnition
+			* 
+			*/
 
 			if (data[0] == SDT_PROMOTE)
 			{
@@ -46,37 +66,63 @@ namespace chess
 				chessEngine.set_waiting_for_promotion(data[1], data[2], (Player)data.back());
 			else if (data[0] == SDT_KILL_DECISTION)
 			{
-				chessEngine.move_generic(data[1], data[2], (Player)data.back());
-				if (chessEngine.promotion_desision_exists())
+				bool didGameEnd = chessEngine.move_generic(data[1], data[2], (Player)data.back());
+
+				if (didGameEnd)
+					endGameFunc();
+				if (chessEngine.promotion_desision_exists((Player)data.back()))
 				{
 					promotion.reset();
 					click.reset();
+					chessEngine.kill_waiting_for_promotion((Player)data.back());
 				}
 			}
 			else if (data[0] == SDT_MOVE)
-				chessEngine.move_generic(data[1], data[2], (Player)data.back());
+			{
+				bool didGameEnd = chessEngine.move_generic(data[1], data[2], (Player)data.back());
+				
+				if (didGameEnd)
+					endGameFunc();
+			}
 			else if (data[0] == SDT_WALL)
 				chessEngine.build_wall_generic(data[1], data[2], (Player)data.back());
 			else if (data[0] == SDT_ENPS)
 			{
 				chessEngine.add_en_passent_oppertunity(data[1], data[2], (Player)data.back());
-				chessEngine.move_generic(data[3], data[4], (Player)data.back());
+				bool didGameEnd = chessEngine.move_generic(data[3], data[4], (Player)data.back());
+
+				if (didGameEnd)
+					endGameFunc();
 			}	
+			else if (data[0] == SDT_MOVE_ENPS)
+			{
+				chessEngine.move_enps_generic(data[1], data[2], (Player)data.back());
+			}
 			else if (data[0] == SDT_LOSE)
 			{
-				isGameOver = true;
-				didWin = false;
-				std::cout << "You Lost!" << std::endl;
+				overState.isGameOver = true;
+				if (data.back() == chessEngine.get_player())
+				{
+					overState.didWin = false;
+					std::cout << "\n\n\n  YOU LOST  \n\n\n" << std::endl; // DEBUG
+				}
+				else
+				{
+					std::cout << "\n\n\n  YOU WIN  \n\n\n" << std::endl; // DEBUG
+					overState.didWin = true;
+				}
 			}
-			else if (data[0] == SDT_WIN)
-			{
-				isGameOver = true;
-				didWin = true;
-				std::cout << "You Won!" << std::endl;
-			}
+
+			//else if (data[0] == SDT_WIN)
+			//{
+			//	isGameOver = true;
+			//	didWin = true;
+			//	std::cout << "You Won!" << std::endl;
+			//}
+
 			else
 			{
-				isGameOver = true;
+				overState.isGameOver = true;
 				std::cout << "Opponent disconnected" << std::endl;
 			}
 		});
@@ -160,15 +206,9 @@ namespace chess
 		}
 
 		//Win or lose message
-		if (isGameOver)
+		if (overState.isGameOver)
 		{
-			DrawRectangle(0, screenSize / 2 - 50, screenSize, 100, BLACK);
-			const char* text = didWin.has_value() && didWin.value() ? "You Won!" : "You Lost!";
-			int fontSize = 40;
-			int textWidth = MeasureText(text, fontSize);
-			int textX = (screenSize - textWidth) / 2;
-			int textY = (screenSize / 2) - (fontSize / 2);
-			DrawText(text, textX, textY, fontSize, WHITE);
+			game_over_screen();
 		}
 
 		int squareSize = screenSize / 8;
@@ -305,16 +345,16 @@ namespace chess
 			handle_clicks();
 			break;
 		case PS_DECIDED:
-			auto promPoses = chessEngine.get_waiting_for_promotion();
+			auto promPoses = chessEngine.get_waiting_for_promotion(chessEngine.get_player());
 			std::vector<uint8_t> data;
 			data.push_back((uint8_t)SDT_PROMOTE);
 			data.push_back((uint8_t)promPoses.from);
 			data.push_back((uint8_t)promPoses.to);
 			data.push_back((uint8_t)promotion.result);
-			data.push_back((uint8_t)player);
+			data.push_back((uint8_t)chessEngine.get_player());
 
 			client.send(data);
-			chessEngine.promote(promotion.result);
+			//chessEngine.promote(promotion.result);
 			promotion.reset();
 		}
 
@@ -362,26 +402,29 @@ namespace chess
 			case FIRST_CLICK:
 				click.pos.second = index;
 
-				if (click.pos.first == click.pos.second)
+				if (click.pos.first != click.pos.second)
 				{
-					if (!click.third)
-					{
-						// Wall mode: require a second square
-						click.buildWall = true;
-						click.third = true;
-					}
-					else
-					{
-						click.reset();
-					}
+					click.state = SECOND_CLICK;
+					handle_second_click();
+					break;
 				}
-				
+
+				if ((chessEngine.piece_at(click.pos.first) == W_PAWN || 
+					 chessEngine.piece_at(click.pos.first) == B_PAWN) &&
+					 !click.third)
+				{
+					// Wall mode: require a second square
+					click.buildWall = true;
+					click.third = true;
+				}
 				else
 				{
-					// Normal move path
-					click.state = SECOND_CLICK;
-					handle_second_click();	
+					click.reset();
+					break;
 				}
+				
+				// Normal move path
+
 				break;
 
 			case SECOND_CLICK:
@@ -432,7 +475,7 @@ namespace chess
 				data.push_back((uint8_t)SDT_WALL);
 				data.push_back((uint8_t)click.pos.first);
 				data.push_back((uint8_t)click.pos.second);
-				data.push_back((uint8_t)player);
+				data.push_back((uint8_t)chessEngine.get_player());
 				client.send(data);
 			}
 			click.reset();
@@ -450,7 +493,7 @@ namespace chess
 			data.push_back((uint8_t)click.pos.first);
 			data.push_back((uint8_t)click.pos.second);
 
-			data.push_back(player);
+			data.push_back((uint8_t)chessEngine.get_player());
 
 			client.send(data);
 			click.reset();
@@ -463,18 +506,33 @@ namespace chess
 			data.push_back((uint8_t)SDT_PROMOTE_DECIDING);
 			data.push_back((uint8_t)click.pos.first);
 			data.push_back((uint8_t)click.pos.second);
+
+			std::cout << "Waiting for promotion decision..." << std::endl; // DEBUG
+			std::cout << "First pos: " << (int)click.pos.first << ", Second pos: " << (int)click.pos.second << std::endl; // DEBUG
+
+			data.push_back((uint8_t)chessEngine.get_player());
 			
 			client.send(data);
 
 			click.reset();
 			break;
 
-		case MOVE_KILL_DECISTION:
+		case MOVE_EN_PASSENT:
+			data.push_back((uint8_t)SDT_MOVE_ENPS);
+			data.push_back((uint8_t)click.pos.first);
+			data.push_back((uint8_t)click.pos.second);
+			data.push_back((uint8_t)chessEngine.get_player());
+			client.send(data);
+			click.reset();
+			break;
+
+
+		case MOVE_KILL_DECISTION: // Forgot to implement this!
 
 			data.push_back((uint8_t)SDT_KILL_DECISTION);
 			data.push_back((uint8_t)click.pos.first);
 			data.push_back((uint8_t)click.pos.second);
-			data.push_back((uint8_t)player);
+			data.push_back((uint8_t)chessEngine.get_player());
 			click.reset();
 			break;
 
@@ -484,6 +542,7 @@ namespace chess
 			data.push_back((uint8_t)SDT_MOVE);
 			data.push_back((uint8_t)click.pos.first);
 			data.push_back((uint8_t)click.pos.second);
+			data.push_back((uint8_t)chessEngine.get_player());
 			client.send(data);
 			click.reset();
 			break;
@@ -497,8 +556,11 @@ namespace chess
 		// --- Check for game end ---
 		if (chessEngine.did_other_lose())
 		{
-			data.push_back(uint8_t(SDT_LOSE));
-			data.push_back(uint8_t(player));
+			std::cout << "\n\n\n  YOU WIN from me  \n\n\n" << std::endl; // DEBUG
+
+			data.push_back((uint8_t)SDT_LOSE);
+			data.push_back((uint8_t)chessEngine.get_oppisiate_player());
+			client.send(data); // Uhh, I formgot to send the data to the client!
 		}
 	}
 
@@ -531,8 +593,17 @@ namespace chess
 				promotion.stateActive = PS_DECIDED;
 			}
 		}
+	}
 
-
+	void Game::game_over_screen()
+	{
+		DrawRectangle(0, screenSize / 2 - 50, screenSize, 100, BLACK);
+		const char* text = overState.didWin ? "You Won!" : "You Lost!";
+		int fontSize = 40;
+		int textWidth = MeasureText(text, fontSize);
+		int textX = (screenSize - textWidth) / 2;
+		int textY = (screenSize / 2) - (fontSize / 2);
+		DrawText(text, textX, textY, fontSize, WHITE);
 	}
 
 	int Game::get_number(const std::string& number) const

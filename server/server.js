@@ -1,51 +1,122 @@
-const WebSocket = require('ws');
+import express from 'express';
+import { WebSocketServer, WebSocket } from 'ws';
+import path from 'path';
+import admin from 'firebase-admin';
 
-const wss = new WebSocket.Server({ port: 8080 });
+admin.initializeApp({
+    credential: admin.credential.applicationDefault(), // Uses Cloud Run's service account
+});
 
-let queue = []; // queue for players waiting for a match
+const db = admin.firestore();
 
-wss.on('connection', function connection(ws) {
-    console.log('Client connected');
+const app = express();
+const PORT = process.env.PORT || 8080;
 
-    // Add client to the queue
-    queue.push(ws);
-    console.log(`Queue size: ${queue.length}`);
+// Serve static files
+app.use(express.static(path.join(process.cwd(), 'build')));
+app.get('/', (req, res) => {
+    res.sendFile(path.join(process.cwd(), 'build', 'index.html'));
+});
 
-    // If we have 2 players, start a game
-    if (queue.length >= 2) {
-        const player1 = queue.shift();
-        const player2 = queue.shift();
+const server = app.listen(PORT, () => {
+   console.log(`Server listening on port ${PORT}`);
+});
 
-        // Send color assignments
-        player1.send('WHITE');
-        player2.send('BLACK');
+const wss = new WebSocketServer({ server });
 
-        console.log('Match started: WHITE vs BLACK');
+// Maps Firestore playerId to actual ws connection
+const connections = new Map();
 
-        // Optionally, set up message forwarding between them
-        const forward = (from, to) => {
-            from.on('message', (msg) => {
-                // Forward only if both sockets are still open
-                if (to.readyState === WebSocket.OPEN) {
-                    to.send(msg.toString());
-                }
-            });
-        };
+const STD_LOSE = 7;
+
+// Helper to forward messages
+const forward = (from, to) => {
+    from.on('message', (msg, isBinary) => {
+        const buf = Buffer.from(msg);
+
+        if (buf[0] === STD_LOSE) {
+            console.log(`Player ${buf[1]} has lost the game.`);
+
+            if (to.readyState === WebSocket.OPEN) {
+                to.send(buf, { binary: true });
+            }
+            if (from.readyState === WebSocket.OPEN) {
+                from.send(buf, { binary: true });
+            }
+
+            to.close(1000, "Game ended");
+            from.close(1000, "Game ended");
+            return;
+        }
+
+        // Normal forwarding
+        if (to.readyState === WebSocket.OPEN) {
+            to.send(buf, { binary: isBinary });
+        }
+        if (from.readyState === WebSocket.OPEN) {
+            from.send(buf, { binary: isBinary });
+        }
+    });
+};
+
+
+// Match as many pairs as possible
+  async function tryMatchPlayers() {
+    const snapshot = await db.collection('queue')
+      .where('status', '==', 'waiting')
+      .orderBy('createdAt')
+      .get();
+
+    const waiting = snapshot.docs;
+
+    while (waiting.length >= 2) {
+      const doc1 = waiting.shift();
+      const doc2 = waiting.shift();
+
+      const player1 = connections.get(doc1.id);
+      const player2 = connections.get(doc2.id);
+
+      if (player1 && player2) {
+        player1.send(new Uint8Array([0, 0])); // WHITE
+        player2.send(new Uint8Array([0, 1])); // BLACK
+        console.log(`Match started: ${doc1.id} (WHITE) vs ${doc2.id} (BLACK)`);
+
+        await Promise.all([
+          db.collection('queue').doc(doc1.id).update({ status: 'matched' }),
+          db.collection('queue').doc(doc2.id).update({ status: 'matched' }),
+        ]);
 
         forward(player1, player2);
         forward(player2, player1);
+      }
     }
+  }
 
-    ws.on('close', () => {
-        console.log('Client disconnected');
-        // Remove from queue if they disconnect before a match
-        queue = queue.filter(c => c !== ws);
+wss.on('connection', async (ws) => {
+    console.log('Client connected');
+
+    // Add to Firestore queue
+    const playerRef = await db.collection('queue').add({
+      status: 'waiting',
+      createdAt: new Date(),
+    });
+    const playerId = playerRef.id;
+
+    connections.set(playerId, ws);
+    console.log(`Player added to Firestore queue: ${playerId}`);
+
+    // Try to match players every time a new one joins
+    await tryMatchPlayers();
+
+    // Handle disconnect
+    ws.on('close', async () => {
+      console.log(`Client disconnected: ${playerId}`);
+      connections.delete(playerId);
+      await db.collection('queue').doc(playerId).delete();
     });
 
     ws.on('message', (message) => {
-        console.log('Received from client:', message.toString());
-        // Could also process server commands here if needed
+      const buf = Buffer.from(message);
+      console.log('Received:', buf);
     });
 });
-
-console.log('WebSocket server running on ws://localhost:8080');

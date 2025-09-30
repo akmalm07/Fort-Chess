@@ -63,7 +63,7 @@ namespace websocket
         onMessageRecievedStr = std::move(func);
     }
 
-    void WebSocketClient::set_on_on_message_recived_bytes(std::function<void(std::vector<uint8_t>)> func)
+    void WebSocketClient::set_on_message_recived_bytes(std::function<void(std::vector<uint8_t>)> func)
     {
 		onMessageRecievedByte = std::move(func);
     }
@@ -95,7 +95,14 @@ namespace websocket
         }
         else
         {
+            const uint8_t* bytes = reinterpret_cast<const uint8_t*>(e->data);
+
             printf("Received binary message of %d bytes:\n", e->numBytes);
+            for (int i = 0; i < e->numBytes; ++i)
+            {
+                printf("%u ", bytes[i]);  // prints each byte as an unsigned integer
+            }
+            printf("\n");
             if (self->onMessageRecievedByte)
             {
                 std::vector<uint8_t> bytes(

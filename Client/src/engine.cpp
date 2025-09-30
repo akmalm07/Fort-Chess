@@ -26,9 +26,11 @@ namespace chess
 		reset_board();
 	}
 
-	void ChessEngine::move_generic(int from, int to, Player player)
+	bool ChessEngine::move_generic(int from, int to, Player p)
 	{
-		if (player != this->player)
+		bool output = false;
+
+		if (p != player)
 		{
 			from = reverse(from);
 			to = reverse(to);
@@ -38,15 +40,46 @@ namespace chess
 		{
 			piecesLeft--;
 			if (piece_at(to) == (player == PL_WHITE ? W_KING : B_KING))
-				didOtherLose = false;
+			{
+				didOtherLose = true;
+				output = true;
+			}
 		}
 
 		move_piece_no_check(from, to);
+
+		return output;
 	}
+
+	void ChessEngine::move_enps_generic(int from, int to, Player p)
+	{
+		// Move the capturing pawn
+		move_generic(from, to, p);
+
+		RowCol rc = get_row_col(from, to);
+
+		// The captured pawn is behind the destination square
+		int capturedRow = rc.toRow + (p == PL_WHITE ? 1 : -1);
+		int capturedCol = rc.toCol;
+
+		int underPos = get_index(p, capturedRow, capturedCol);
+
+		boardSetup[underPos].piece = EMPTY;
+		piecesLeft--;
+	}
+
 
 	void ChessEngine::set_waiting_for_promotion(int from, int to, Player col)
 	{
-		waitingForPromotion = { from, to, col }; // Potential problem if both players promote at the same time. Patch later
+		if (col != player)
+		{
+			from = reverse(from);
+			to = reverse(to);
+			
+			return;
+			waitingForPromotion.other = { from, to }; 
+		}
+		waitingForPromotion.me = { from, to };
 	}
 
 
@@ -111,35 +144,40 @@ namespace chess
 	void ChessEngine::add_en_passent_oppertunity(int underPosition, int whenImplemented, Player player)
 	{
 		if (player != this->player)
-			enPassantOppertunities.push_back({ underPosition, whenImplemented });
+			enPassantOppertunities.push_back({ reverse(underPosition), whenImplemented });
 	}
 
-	void ChessEngine::promote_generic(int from, int to, PromotionResult res, Player player)
+	void ChessEngine::promote_generic(int from, int to, PromotionResult res, Player p)
 	{
 		if (res == PR_NONE)
 			return;
 
-		if (player != this->player)
+		if (p != player)
 		{
+			if (!waitingForPromotion.other.exists())
+				return;
 			from = reverse(from);
 			to = reverse(to);
 		}
+		else if (!waitingForPromotion.me.exists())
+			return;
+
 
 		
 		boardSetup[from].piece = EMPTY;
 		switch (res)
 		{
 		case PR_QUEEN:
-			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_QUEEN : B_QUEEN) : (this->player == player ? B_QUEEN : W_QUEEN));
+			boardSetup[to].piece = (player == PL_WHITE ? (player == p ? W_QUEEN : B_QUEEN) : (player == p ? B_QUEEN : W_QUEEN));
 			break;
 		case PR_ROOK:
-			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_ROOK : B_ROOK) : (this->player == player ? B_ROOK : W_ROOK));
+			boardSetup[to].piece = (player == PL_WHITE ? (player == p ? W_ROOK : B_ROOK) : (player == p ? B_ROOK : W_ROOK));
 			break;
 		case PR_BISHOP:
-			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_BISHOP : B_BISHOP) : (this->player == player ? B_BISHOP : W_BISHOP));
+			boardSetup[to].piece = (player == PL_WHITE ? (player == p ? W_BISHOP : B_BISHOP) : (player == p ? B_BISHOP : W_BISHOP));
 			break;
 		case PR_KNIGHT:
-			boardSetup[to].piece = (this->player == PL_WHITE ? (this->player == player ? W_KNIGHT : B_KNIGHT) : (this->player == player ? B_KNIGHT : W_KNIGHT));
+			boardSetup[to].piece = (player == PL_WHITE ? (player == p ? W_KNIGHT : B_KNIGHT) : (player == p ? B_KNIGHT : W_KNIGHT));
 			break;
 		}
 	}
@@ -154,6 +192,11 @@ namespace chess
 			else
 				++it;
 		}
+	}
+
+	Player ChessEngine::get_player() const
+	{
+		return player;
 	}
 
 	bool ChessEngine::is_square_waiting(int square) const
@@ -176,15 +219,42 @@ namespace chess
 		return boardSetup[index].piece;
 	}
 
-	bool ChessEngine::promotion_desision_exists() const
+	bool ChessEngine::promotion_desision_exists(Player p) const
 	{
-		return waitingForPromotion.to != -1;
+		if (p == player)
+			return waitingForPromotion.me.exists();
+		else
+			return waitingForPromotion.other.exists();
+	}
+
+	void ChessEngine::kill_waiting_for_promotion(Player player)
+	{
+		if (player == this->player)
+			waitingForPromotion.me.reset();
+		else
+			waitingForPromotion.other.reset();
 	}
 
 	int ChessEngine::piece_count() const
 	{
 		return piecesLeft;
 	}
+
+
+	MoveState ChessEngine::is_killing_desision_wrapper(MoveState state, int to)
+	{
+		if (state != MOVE_CAPTURE && state != MOVE_PROMOTION_CAPTURE && !waitingForPromotion.other.exists())
+			return state;
+		
+		//	toRow = to / 8;
+
+		std::cout << "Waiting for promotion value: " << waitingForPromotion.other.exists() << " " << waitingForPromotion.other.from << " " << waitingForPromotion.other.to << "\n";
+
+		if (to / 8 == 7 && waitingForPromotion.other.from == to)
+			return MOVE_KILL_DECISTION;
+		return state;
+	}
+
 
 	MoveState ChessEngine::move_piece(int from, int to)
 	{
@@ -195,23 +265,23 @@ namespace chess
 		{
 		case W_PAWN:
 		case B_PAWN:
-			return handle_pawn_move(from, to);
+			return is_killing_desision_wrapper(handle_pawn_move(from, to), to);
 		case W_ROOK:
 		case B_ROOK:
-			return handle_rook_move(from, to);
+			return is_killing_desision_wrapper(handle_rook_move(from, to), to);
 		case W_KNIGHT:
 		case B_KNIGHT:
-			return handle_knight_move(from, to);
+			return is_killing_desision_wrapper(handle_knight_move(from, to), to);
 		case W_BISHOP:
 		case B_BISHOP:
-			return handle_bishop_move(from, to);
+			return is_killing_desision_wrapper(handle_bishop_move(from, to), to);
 
 		case W_QUEEN:
 		case B_QUEEN:
-			return handle_queen_move(from, to);
+			return is_killing_desision_wrapper(handle_queen_move(from, to), to);
 		case W_KING:
 		case B_KING:
-			return handle_king_move(from, to);
+			return is_killing_desision_wrapper(handle_king_move(from, to), to);
 		default:
 			return MOVE_INVALID;
 		}
@@ -358,31 +428,34 @@ namespace chess
 
 	void ChessEngine::promote(PromotionResult promotion)
 	{
-		if (waitingForPromotion.to == -1)
+		if (waitingForPromotion.me.to == -1)
 			return;
 
 		switch (promotion)
 		{
 		case PR_QUEEN:
-			boardSetup[waitingForPromotion.to].piece = (player == PL_WHITE ? W_QUEEN : B_QUEEN);
+			boardSetup[waitingForPromotion.me.to].piece = (player == PL_WHITE ? W_QUEEN : B_QUEEN);
 			break;
 		case PR_ROOK:
-			boardSetup[waitingForPromotion.to].piece = (player == PL_WHITE ? W_ROOK : B_ROOK);
+			boardSetup[waitingForPromotion.me.to].piece = (player == PL_WHITE ? W_ROOK : B_ROOK);
 			break;
 		case PR_BISHOP:
-			boardSetup[waitingForPromotion.to].piece = (player == PL_WHITE ? W_BISHOP : B_BISHOP);
+			boardSetup[waitingForPromotion.me.to].piece = (player == PL_WHITE ? W_BISHOP : B_BISHOP);
 			break;
 		case PR_KNIGHT:
-			boardSetup[waitingForPromotion.to].piece = (player == PL_WHITE ? W_KNIGHT : B_KNIGHT);
+			boardSetup[waitingForPromotion.me.to].piece = (player == PL_WHITE ? W_KNIGHT : B_KNIGHT);
 			break;
 
 		}
 		waitingForPromotion = { -1, -1 };
 	}
 
-	ToFrom ChessEngine::get_waiting_for_promotion() const
+	ToFrom ChessEngine::get_waiting_for_promotion(Player p) const
 	{
-		return { .from = waitingForPromotion.from, .to = waitingForPromotion.to };
+		if (p != player)
+			return { .from = waitingForPromotion.me.from, .to = waitingForPromotion.me.to };
+		else
+			return { .from = waitingForPromotion.other.from, .to = waitingForPromotion.other.to };
 	}
 
 	int ChessEngine::reverse(int pos)
@@ -394,13 +467,22 @@ namespace chess
 
 	bool ChessEngine::did_other_lose() const
 	{
+		if (didOtherLose.has_value())
+			return didOtherLose.value();
+
 		for (int i = 0; i < boardSetup.size(); i++)
 		{
 			if (boardSetup[i].piece == (player == PL_WHITE ? B_KING : W_KING))
 				return false;
 		}
 		return true;
-	}	
+	}
+
+	Player ChessEngine::get_oppisiate_player() const
+	{
+		return player == PL_WHITE ? PL_BLACK : PL_WHITE;
+	}
+
 
 	std::array<BoardData, 64> ChessEngine::get_board() const
 	{
@@ -481,9 +563,9 @@ namespace chess
 			(rc.toCol == rc.fromCol + 1 && can_move_diagonal_wall_check(from, DIR_UP_RIGHT)))
 			&& rc.toRow == rc.fromRow - 1)
 		{
+			--piecesLeft;
 			if (is_other_player_piece(to))
 			{
-				--piecesLeft;
 
 				// Promotion with capture
 				if (rc.toRow == 0)
@@ -495,8 +577,7 @@ namespace chess
 			}
 			else if (en_passent_avalible(to))
 			{
-				boardSetup[row_col_to_index(rc.toRow + 1, rc.toCol)].piece = EMPTY;
-				--piecesLeft;
+				return MOVE_EN_PASSENT;
 			}
 		}
 
@@ -616,7 +697,6 @@ namespace chess
 			kingMoved = true;
 			if (is_other_player_piece(to))
 			{
-				
 				--piecesLeft;
 				return MOVE_CAPTURE;
 			}
@@ -635,7 +715,9 @@ namespace chess
 
 		// Castling
 
-		return handle_castling(from, to);
+
+		return MOVE_INVALID;
+		//return handle_castling(from, to);
 	}
 
 	MoveState ChessEngine::handle_castling(int from, int to)

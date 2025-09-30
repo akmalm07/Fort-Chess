@@ -19,12 +19,13 @@ namespace chess
 	{
 		SDT_SET_COLOR = 0,
 		SDT_MOVE,
+		SDT_MOVE_ENPS,
 		SDT_PROMOTE,
 		SDT_PROMOTE_DECIDING,
 		SDT_WALL,
 		SDT_ENPS,
 		SDT_LOSE,
-		SDT_WIN,
+		SDT_WIN, // Unused
 
 		SDT_KILL_DECISTION
 	};;
@@ -62,10 +63,12 @@ namespace chess
 
 		const char* title;
 
-		bool isGameOver = false; 
 		bool windowExists = false;
 
-		std::optional<bool> didWin = std::nullopt;
+		struct {
+			bool isGameOver = false;
+			bool didWin = false;
+		} overState;
 
 		struct PiecesTexturePos
 		{
@@ -132,8 +135,6 @@ namespace chess
 			}
 		} click;
 
-		Player player = PL_WHITE;
-
 		websocket::WebSocketClient client;
 
 		bool startGame = false;
@@ -169,6 +170,8 @@ namespace chess
 		void render_promotion_options();
 
 		void handle_promotion_input();
+
+		void game_over_screen();
 
 	};
 }

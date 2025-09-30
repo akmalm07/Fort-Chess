@@ -53,8 +53,9 @@ namespace chess
 	{
 		MOVE_SUCCESS = 0,
 		MOVE_INVALID,
-		MOVE_CAPTURE,
+		MOVE_EN_PASSENT,
 		MOVE_PROMOTION,
+		MOVE_CAPTURE,
 		MOVE_PROMOTION_CAPTURE,
 		MOVE_EN_PASSENT_OPPORTUNITY,
 
@@ -116,7 +117,9 @@ namespace chess
 		ChessEngine(ChessEngine&&) noexcept = default;           
 		ChessEngine& operator=(ChessEngine&&) noexcept = default;
 
-		void move_generic(int from, int to, Player player);
+		bool move_generic(int from, int to, Player player);
+
+		void move_enps_generic(int from, int to, Player player);
 
 		void set_waiting_for_promotion(int from, int to, Player col);
 
@@ -128,11 +131,15 @@ namespace chess
 
 		void check_timeouts();
 
+		Player get_player() const;
+
 		bool is_square_waiting(int square) const;
 
 		Pieces piece_at(int index) const;
 
-		bool promotion_desision_exists() const;
+		bool promotion_desision_exists(Player player) const;
+
+		void kill_waiting_for_promotion(Player player);
 
 		int piece_count() const;
 
@@ -158,11 +165,13 @@ namespace chess
 
 		void promote(PromotionResult promotion);
 
-		ToFrom get_waiting_for_promotion() const;
+		ToFrom get_waiting_for_promotion(Player p) const;
 
 		int reverse(int pos);
 
 		bool did_other_lose() const;
+
+		Player get_oppisiate_player() const;
 
 		std::array<BoardData, 64> get_board() const;
 
@@ -181,11 +190,15 @@ namespace chess
 
 		std::array<bool, 112> chessBorders = { false };
 
+
 		struct
 		{
-			int from;
-			int to;
-			Player col;
+			struct {
+				int from;
+				int to;
+				bool exists() const { return from != -1 && to != -1; }
+				void reset() { from = -1; to = -1; }
+			} other, me;
 		} waitingForPromotion = { -1, -1 };
 
 		std::array<BoardData, 64> boardSetup;
@@ -207,7 +220,7 @@ namespace chess
 		};
 
 		bool kingMoved = false;
-		bool didOtherLose = false;
+		std::optional<bool> didOtherLose = std::nullopt;
 
 		RowCol get_row_col(int from, int to) const;
 
@@ -240,6 +253,7 @@ namespace chess
 
 		void add_timeout(int position);
 
+		MoveState is_killing_desision_wrapper(MoveState state, int to);
 	};
 
 }
