@@ -3,6 +3,8 @@
 Fort Chess is a chaotic, real-time twist on the classic game of chess — blending the strategic thinking of chess with the fast-paced, unpredictable nature of Fortnite.
 Built in C++ with Raylib, the game lets everyone move pieces whenever they want, place walls by double-clicking pawns, and battle against cooldowns for control of the board.
 
+You can play at: https://fort-chess-host-402203537997.us-east4.run.app ! This game was deplyed with google cloud run. Initally,, you will see an empty chess board, unless someone else joins. 
+
 ## 🎮 Features
 
 Real-time gameplay — no turns, anyone can move anytime.
